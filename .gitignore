@@ -1,0 +1,10 @@
+# PyCharm
+.idea/*
+__pycache__/*
+
+# VSCode
+.vscode/*
+
+# ignore dataset and logs
+dataset/*
+logs/*

@@ -10,37 +10,25 @@ import numpy as np
 import torch
 from progress.bar import Bar
 from torch import nn
+from torch.utils.data import DataLoader
 
-from FLcore.utils.AverageMeter import AverageMeter
-from ..utils.eval import accuracy
+from FLcore.utils import AverageMeter, accuracy, reset_net, GeneralDataset, split_trainset_by_emd
 
 __all__ = ['Server']
-
-from ..utils.model_utils import reset_net
 
 
 class Server(object):
     def __init__(self, args, xtrain, ytrain, xtest, ytest, taskcla, model):
-        self.learning_rate = args.learning_rate
-
         self.args = args
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 训练设备、数据集 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 设备
-        # 数据集
-        # 数据集描述
-        # 全局可执行任务
         self.device = args.device
-        self.xtrain = xtrain
-        self.ytrain = ytrain
-        self.xtest = xtest
-        self.ytest = ytest
         self.taskcla = taskcla
-        self.global_tasks = []
+        self.client_trainsets, self.client_emds = split_trainset_by_emd(xtrain=xtrain, ytrain=ytrain, taskcla=taskcla,
+                                                                        emd_targets=[[0.3] * len(
+                                                                            taskcla)] * self.args.num_clients,
+                                                                        num_data=[[3000] * len(
+                                                                            taskcla)] * self.args.num_clients)
+        self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], label=ytest[item[0]], num_classes=item[1]) for item in self.taskcla}
 
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 模型训练相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 全局模型
-        # 全局训练轮数
-        # 重放轮数
         self.global_model = copy.deepcopy(model)
         self.loss = nn.CrossEntropyLoss()
         self.batch_size = args.batch_size
@@ -48,12 +36,6 @@ class Server(object):
         self.replay_global_rounds = args.replay_global_rounds
         self.timesteps = args.timesteps
 
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 客户端相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 客户端数量
-        # 参与比例
-        # 随机参与比例
-        # 参与的客户端数量
-        # 当前参与的客户端数量
         self.num_clients = args.num_clients
         self.join_ratio = args.join_ratio
         self.num_join_clients = int(self.num_clients * self.join_ratio)
@@ -64,10 +46,7 @@ class Server(object):
         self.train_slow_clients = []
         self.send_slow_clients = []
 
-        self.time_select = args.time_select
-        self.goal = args.goal
         self.time_threthold = args.time_threthold
-        self.top_cnt = 100
 
         self.received_info = {
             'client_ids': [],
@@ -75,25 +54,10 @@ class Server(object):
             'client_models': []
         }
 
-        self.rs_test_acc = []
-        self.rs_test_auc = []
-        self.rs_train_loss = []
-
         self.client_drop_rate = args.client_drop_rate
         self.train_slow_rate = args.train_slow_rate
         self.send_slow_rate = args.send_slow_rate
 
-        self.batch_num_per_client = args.batch_num_per_client
-
-        self.num_new_clients = args.num_new_clients
-        self.new_clients = []
-        self.eval_new_clients = False
-        self.fine_tuning_epoch_new = args.fine_tuning_epoch_new
-
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 保存文件相关路径 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 服务器保存的根目录路径
-        # 日志文件夹
-        # 模型pt文件夹
         self.root_path = os.path.join(args.root_path, 'Server')
         self.logs_path = os.path.join(self.root_path, 'logs')
         self.models_path = os.path.join(self.root_path, 'models')
@@ -102,12 +66,9 @@ class Server(object):
     # 设置相关客户端操作
     # ------------------------------------------------------------------------------------------------------------------
     # 生成现有的客户端
-    def set_clients(self, clientObj, xtrain, ytrain, model):
+    def set_clients(self, clientObj, trainsets, model, taskcla):
         for i, train_slow, send_slow in zip(range(self.num_clients), self.train_slow_clients, self.send_slow_clients):
-            client = clientObj(args=self.args, id=i,
-                               xtrain=xtrain, ytrain=ytrain,
-                               local_model=copy.deepcopy(model),
-                               train_slow=train_slow, send_slow=send_slow)
+            client = clientObj(args=self.args, id=i, trainset=trainsets[i], local_model=copy.deepcopy(model), taskcla=taskcla, train_slow=train_slow, send_slow=send_slow)
             self.clients.append(client)
 
     # 设置train_slow和send_slow的客户端
@@ -192,36 +153,21 @@ class Server(object):
         for idx, train_samples in enumerate(self.received_info['client_weights']):
             self.received_info['client_weights'][idx] = train_samples / total_client_train_samples
 
-    # 根据本地模型聚合全局模型
-    def aggregate_parameters(self):
-        """
-        根据本地模型聚合全局模型
-        @return:
-        """
-        # 断言客户端上传的模型数量不为零
-        assert (len(self.received_info['client_models']) > 0)
-        self.global_model = copy.deepcopy(self.received_info['client_models'][0])
-        # 将全局模型的参数值清空
-        for param in self.global_model.parameters():
-            param.data.zero_()
-        # 获取全局模型的参数值
-        for weight, model in zip(self.received_info['client_weights'], self.received_info['client_models']):
-            for server_param, client_param in zip(self.global_model.parameters(), model.parameters()):
-                server_param.data += client_param.data.clone() * weight
-
     def evaluate(self, task_id: int):
         # --------------------------------------------------------------------------------------------------------------
         # 获取实验相关参数（是否是HLOP_SNN相关实验，如果是的话，是否是bptt/ottt相关设置）
         # --------------------------------------------------------------------------------------------------------------
         bptt, ottt = False, False
-        if self.args.use_HLOP:
-            if self.args.experiment_name.endswith('bptt'):
-                bptt = True
-            elif self.args.experiment_name.endswith('ottt'):
-                ottt = True
+        if self.args.experiment_name.endswith('bptt'):
+            bptt = True
+        elif self.args.experiment_name.endswith('ottt'):
+            ottt = True
 
         # 全局模型开启评估模式
         self.global_model.eval()
+        testset = self.testset[f'task {task_id}']
+        testloader = DataLoader(testset, batch_size=self.batch_size, shuffle=True, drop_last=False)
+        num_testset = len(testset)
 
         batch_time = AverageMeter()
         losses = AverageMeter()
@@ -229,24 +175,17 @@ class Server(object):
         top5 = AverageMeter()
         end = time.time()
 
-        bar = Bar('Server Testing', max=((self.xtest[task_id].size(0) - 1) // self.batch_size + 1))
+        bar = Bar('Server Testing', max=((num_testset - 1) // self.batch_size + 1))
 
         test_acc = 0
         test_loss = 0
         test_num = 0
         batch_idx = 0
 
-        r = np.arange(self.xtest[task_id].size(0))
         with torch.no_grad():
-            for i in range(0, len(r), self.batch_size):
-                if i + self.batch_size <= len(r):
-                    index = r[i: i + self.batch_size]
-                else:
-                    index = r[i:]
-                batch_idx += 1
-
-                data = self.xtest[task_id][index].float().to(self.device)
-                label = self.ytest[task_id][index].to(self.device)
+            for data, label in testloader:
+                data = data.float().to(self.device)
+                label = label.to(self.device)
 
                 if bptt:
                     out_, out = self.global_model(data, task_id, projection=False, update_hlop=False)
@@ -287,7 +226,7 @@ class Server(object):
                 # plot progress
                 bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                     batch=batch_idx,
-                    size=((self.xtest[task_id].size(0) - 1) // self.batch_size + 1),
+                    size=((num_testset - 1) // self.batch_size + 1),
                     bt=batch_time.avg,
                     total=bar.elapsed_td,
                     eta=bar.eta_td,

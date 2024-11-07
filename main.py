@@ -10,7 +10,7 @@ from FLcore.servers.serverdyn import FedDyn
 from FLcore.servers.servermoon import MOON
 from FLcore.servers.serverprox import FedProx
 from FLcore.servers.serverscaffold import SCAFFOLD
-from FLcore.utils.prepare_utils import prepare_dataset, prepare_model
+from FLcore.utils import prepare_dataset, prepare_model
 
 
 def run(args):
@@ -34,16 +34,13 @@ def run(args):
 
 if __name__ == "__main__":
     _seed_ = 2024
-    torch.manual_seed(_seed_)  # use torch.manual_seed() to seed the RNG for all devices (both CPU and CUDA)
+    torch.manual_seed(_seed_)
     torch.cuda.manual_seed_all(_seed_)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-hlop_start_epochs', default=0, type=int, help='the start epoch to update hlop')
-    parser.add_argument('-hlop_proj_type', type=str,
-                        help='choice for projection type in bottom implementation, default is input, can choose weight for acceleration of convolutional operations',
-                        default='input')
+
 
     # SNN settings
     parser.add_argument('-timesteps', default=20, type=int)
@@ -96,7 +93,7 @@ if __name__ == "__main__":
     # 训练及重放相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     parser.add_argument("--global_rounds", type=int, default=1, help="全局通信轮次")
     parser.add_argument("--local_epochs", type=int, default=1, help="本地训练轮次")
-    parser.add_argument("--batch_size", type=int, default=64, help="训练数据批处理大小")
+    parser.add_argument("--batch_size", type=int, default=16, help="训练数据批处理大小")
     parser.add_argument("--replay_global_rounds", type=int, default=1, help="重放全局通信轮次")
     parser.add_argument("--replay_local_epochs", type=int, default=1, help="重放本地回放轮次")
     parser.add_argument("--replay_batch_size", type=int, default=64, help="重放数据批处理大小")
@@ -119,7 +116,6 @@ if __name__ == "__main__":
     parser.add_argument('--memory_size', default=50, type=int, help='memory size for replay')
     parser.add_argument('--feedback_alignment', action='store_true', help='feedback alignment')
     parser.add_argument('--sign_symmetric', action='store_true', help='use sign symmetric')
-    parser.add_argument('--baseline', action='store_true', help='baseline')
     # 训练及重放相关参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
     parser.add_argument("--experiment_name", type=str, default="pmnist", help="实验名称")
@@ -129,7 +125,12 @@ if __name__ == "__main__":
     parser.add_argument("--device_id", type=str, default="0", help="实验设备的id")
     parser.add_argument("--num_clients", type=int, default=3, help="客户端数量")
 
-    parser.add_argument("--use_HLOP", action='store_true', help="是否使用HLOP")
+    parser.add_argument('--use_hlop', action='store_true', help="是否使用hlop")
+    parser.add_argument('--hlop_start_epochs', default=0, type=int, help='the start epoch to update hlop')
+    parser.add_argument('--hlop_proj_type', type=str,
+                        help='choice for projection type in bottom implementation, default is input, can choose weight for acceleration of convolutional operations',
+                        default='input')
+
     parser.add_argument("--use_replay", action='store_true', help="是否使用重放")
 
     # 解析命令行参数
@@ -138,7 +139,7 @@ if __name__ == "__main__":
     args.root_path = os.path.join('logs',
                                   args.experiment_name,
                                   args.fed_algorithm + time.strftime(" %Y-%m-%d %H：%M：%S"))
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.device_id
+    # os.environ["CUDA_VISIBLE_DEVICES"] = args.device_id
 
     if args.device == "cuda" and not torch.cuda.is_available():
         print("\ncuda is not avaiable.\n")
@@ -154,9 +155,9 @@ if __name__ == "__main__":
     print("Using device: {}".format(args.device))
 
     print("Global rounds: {}".format(args.global_rounds))
-    if args.device == "cuda":
-        print("Cuda device id: {}".format(os.environ["CUDA_VISIBLE_DEVICES"]))
-    print('Using HLOP: {}'.format(args.use_HLOP))
+    # if args.device == "cuda":
+    #     print("Cuda device id: {}".format(os.environ["CUDA_VISIBLE_DEVICES"]))
+    print('Using HLOP: {}'.format(args.use_hlop))
     print('Using replay: {}'.format(args.use_replay))
     print("=" * 50)
 

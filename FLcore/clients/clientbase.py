@@ -10,46 +10,26 @@ import torch.nn as nn
 
 __all__ = ['Client']
 
+from torch.utils.data import DataLoader
+
+from FLcore.utils import GeneralDataset
+
 
 class Client(object):
-    def __init__(self, args, id, xtrain, ytrain, local_model, **kwargs):
-        """
-        @param args:
-        @param id:
-        @param xtrain:
-        @param test_samples:
-        @param kwargs:
-        """
+    def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
         self.args = args
         self.id = id  # id标识
         self.fed_algorithm = args.fed_algorithm  # 联邦算法
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 训练设备、数据集 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 设备
-        # 训练集
-        # 测试集
-        # 重放数据集
-        # 本地可执行任务
         self.device = args.device
-        self.xtrain = xtrain
-        self.ytrain = ytrain
-        self.train_samples = len(xtrain[0])
-        self.replay_xtrain = {}
-        self.replay_ytrain = {}
-        self.local_tasks = list(self.xtrain.keys())
+        self.taskcla = taskcla
+        self.local_tasks = [i for i in range(len(taskcla))]
+        self.trainset = trainset
+        self.train_samples = len(self.trainset)
+        self.replay_trainset = {f'task {item[0]}': None for item in self.taskcla}
 
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 模型训练相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 本地模型
-        # 损失
-        # 优化器
-        # 学习率
-        # 学习率调节器
         self.local_model = copy.deepcopy(local_model)
-
         self.loss = nn.CrossEntropyLoss()
-        # 本地轮次
-        # 重放轮次
-        # 批处理大小
-        # 重放批处理大小
+
         self.local_epochs = args.local_epochs
         self.replay_local_epochs = args.replay_local_epochs
         self.batch_size = args.batch_size
@@ -86,10 +66,6 @@ class Client(object):
         self.train_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
         self.send_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
 
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 保存文件相关路径 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 客户端i保存的根目录路径
-        # 日志文件夹
-        # 模型pt文件夹
         self.root_path = os.path.join(args.root_path, 'Client', f'id_{self.id}')
         self.logs_path = os.path.join(self.root_path, 'logs')
         self.models_path = os.path.join(self.root_path, 'models')
@@ -317,27 +293,26 @@ class Client(object):
                     raise NotImplementedError(self.args.lr_scheduler)
 
     def set_replay_data(self, task_id, ncla):
-        self.replay_xtrain[task_id], self.replay_ytrain[task_id] = [], []
-        for class_name in range(ncla):
-            num = self.memory_size
-            index = 0
-            while num > 0:
-                if self.ytrain[task_id][index] == class_name:
-                    self.replay_xtrain[task_id].append(self.xtrain[task_id][index])
-                    self.replay_ytrain[task_id].append(self.ytrain[task_id][index])
-                    num -= 1
-                index += 1
-        self.replay_xtrain[task_id] = torch.stack(self.replay_xtrain[task_id], dim=0)
-        self.replay_ytrain[task_id] = torch.stack(self.replay_ytrain[task_id], dim=0)
+        replay_data, replay_label = [], []
 
-    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 模型训练、重放、测试操作 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        data_of_classes = {key: torch.where(torch.tensor(self.trainset[f'task {task_id}'].targets == key))[0].cpu().detach().numpy() for key in range(ncla)}
+
+        for class_name in range(ncla):
+            if len(data_of_classes[class_name]) < self.memory_size:
+                replay_data.extend(data_of_classes[class_name])
+                replay_label.extend([class_name] * len(data_of_classes[class_name]))
+            else:
+                replay_data.extend(data_of_classes[class_name][:self.memory_size])
+                replay_label.extend([class_name] * self.memory_size)
+
+        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data, label=replay_label, num_classes=ncla)
+
     def train(self, task_id):
         pass
 
     def replay(self, tasks_learned):
         pass
 
-    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 数据保存、加载操作 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     def save_local_model(self, model_name):
         """
         保存本地模型

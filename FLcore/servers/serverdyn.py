@@ -11,24 +11,26 @@ from tensorboardX import SummaryWriter
 
 from ..clients.clientdyn import clientDyn
 from ..servers.serverbase import Server
-from ..utils.prepare_utils import prepare_bptt_ottt, prepare_hlop_out
+from ..utils import prepare_bptt_ottt, prepare_hlop_out
 
 
 class FedDyn(Server):
     def __init__(self, args, xtrain, ytrain, xtest, ytest, taskcla, model):
         super().__init__(args, xtrain, ytrain, xtest, ytest, taskcla, model)
         self.set_slow_clients()
-        self.set_clients(clientDyn, self.xtrain, self.ytrain, model)
+        self.set_clients(clientDyn, self.client_trainsets, model, taskcla)
         self.time_cost = []
 
         self.alpha = args.FedDyn_alpha
         self.server_state = None
 
-    def execute(self,  use_HLOP: bool):
+    def execute(self):
         bptt, ottt = prepare_bptt_ottt(self.args.experiment_name)
         if bptt or ottt:
             self.args.use_replay = False
 
+        # if self.args.use_hlop:
+        #     hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1 = prepare_hlop_out(self.args.experiment_name)
         hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1 = prepare_hlop_out(self.args.experiment_name)
 
         task_learned = []
@@ -44,8 +46,9 @@ class FedDyn(Server):
             writer = SummaryWriter(os.path.join(self.args.root_path, 'task{task_id}'.format(task_id=task_id)))
 
             # 如果使用HLOP-SNN方法，那么就需要根据相关参数进行调整
-            if use_HLOP:
-                self.adjust_for_HLOP_before_train_task(ncla, task_count, hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1)
+            # if self.args.use_hlop:
+            #     self.adjust_for_HLOP_before_train_task(ncla, task_count, hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1)
+            self.adjust_for_HLOP_before_train_task(ncla, task_count, hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1)
 
             self.server_state = copy.deepcopy(self.global_model)
             for param in self.server_state.parameters():
@@ -92,8 +95,9 @@ class FedDyn(Server):
                     print('{:5.1f}% '.format(acc_matrix[i_a, j_a] * 100), end='')
                 print()
 
-            if use_HLOP:
-                self.adjust_for_HLOP_after_train_task()
+            # if self.args.use_hlop:
+            #     self.adjust_for_HLOP_after_train_task()
+            self.adjust_for_HLOP_after_train_task()
 
             # 如果重放并且起码参与了一个任务
             if self.args.use_replay and task_count >= 1:

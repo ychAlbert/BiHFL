@@ -6,10 +6,6 @@ import time
 import torch
 
 from FLcore.servers.serveravg import FedAvg
-from FLcore.servers.serverdyn import FedDyn
-from FLcore.servers.servermoon import MOON
-from FLcore.servers.serverprox import FedProx
-from FLcore.servers.serverscaffold import SCAFFOLD
 from FLcore.utils import prepare_dataset, prepare_model
 
 
@@ -20,14 +16,6 @@ def run(args):
 
     if args.fed_algorithm == 'FedAvg':
         server = FedAvg(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'SCAFFOLD':
-        server = SCAFFOLD(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'FedProx':
-        server = FedProx(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'FedDyn':
-        server = FedDyn(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'MOON':
-        server = MOON(args, xtrain, ytrain, xtest, ytest, taskcla, model)
 
     server.execute()
 
@@ -40,8 +28,6 @@ if __name__ == "__main__":
     torch.backends.cudnn.benchmark = False
 
     parser = argparse.ArgumentParser()
-
-
     # SNN settings
     parser.add_argument('-timesteps', default=20, type=int)
     parser.add_argument('-Vth', default=0.3, type=float)
@@ -93,7 +79,7 @@ if __name__ == "__main__":
     # 训练及重放相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     parser.add_argument("--global_rounds", type=int, default=1, help="全局通信轮次")
     parser.add_argument("--local_epochs", type=int, default=1, help="本地训练轮次")
-    parser.add_argument("--batch_size", type=int, default=16, help="训练数据批处理大小")
+    parser.add_argument("--batch_size", type=int, default=64, help="训练数据批处理大小")
     parser.add_argument("--replay_global_rounds", type=int, default=1, help="重放全局通信轮次")
     parser.add_argument("--replay_local_epochs", type=int, default=1, help="重放本地回放轮次")
     parser.add_argument("--replay_batch_size", type=int, default=64, help="重放数据批处理大小")
@@ -124,6 +110,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"], help="实验设备")
     parser.add_argument("--device_id", type=str, default="0", help="实验设备的id")
     parser.add_argument("--num_clients", type=int, default=3, help="客户端数量")
+    parser.add_argument("--dirichlet_concentration", type=float, default=0.8, help="迪利克雷浓度")
+
 
     parser.add_argument('--use_hlop', action='store_true', help="是否使用hlop")
     parser.add_argument('--hlop_start_epochs', default=0, type=int, help='the start epoch to update hlop')

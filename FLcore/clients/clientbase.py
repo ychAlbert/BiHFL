@@ -22,7 +22,8 @@ class Client(object):
         self.fed_algorithm = args.fed_algorithm  # 联邦算法
         self.device = args.device
         self.taskcla = taskcla
-        self.local_tasks = [i for i in range(len(taskcla))]
+        self.local_tasks = [eval(task.replace("task ", "")) for task in trainset.keys()]
+
         self.trainset = trainset
         self.train_samples = len(self.trainset)
         self.replay_trainset = {f'task {item[0]}': None for item in self.taskcla}
@@ -61,8 +62,6 @@ class Client(object):
                 self.has_BatchNorm = True
                 break
 
-        self.train_slow = kwargs['train_slow']
-        self.send_slow = kwargs['send_slow']
         self.train_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
         self.send_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
 
@@ -295,7 +294,7 @@ class Client(object):
     def set_replay_data(self, task_id, ncla):
         replay_data, replay_label = [], []
 
-        data_of_classes = {key: torch.where(torch.tensor(self.trainset[f'task {task_id}'].targets == key))[0].cpu().detach().numpy() for key in range(ncla)}
+        data_of_classes = {key: torch.where(torch.tensor(self.trainset[f'task {task_id}'].labels == key))[0].cpu().detach().numpy() for key in range(ncla)}
 
         for class_name in range(ncla):
             if len(data_of_classes[class_name]) < self.memory_size:
@@ -305,7 +304,7 @@ class Client(object):
                 replay_data.extend(data_of_classes[class_name][:self.memory_size])
                 replay_label.extend([class_name] * self.memory_size)
 
-        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data, label=replay_label, num_classes=ncla)
+        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data, labels=replay_label, n_class=ncla)
 
     def train(self, task_id):
         pass

@@ -73,7 +73,7 @@ class clientAVG(Client):
         # 本地轮次的操作
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
-                data = data.float().to(self.device)
+                data = data.to(self.device)
                 label = label.to(self.device)
 
                 if ottt:
@@ -153,6 +153,7 @@ class clientAVG(Client):
                 # measure elapsed time
                 batch_time.update(time.time() - end)
                 end = time.time()
+                batch_idx+=1
 
                 bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                     batch=batch_idx,
@@ -199,7 +200,7 @@ class clientAVG(Client):
 
             for epoch in range(1, self.replay_local_epochs + 1):
                 for data, label in replay_trainloader:
-                    data = data.float().to(self.device)
+                    data = data.to(self.device)
                     label = label.to(self.device)
 
                     self.optimizer.zero_grad()
@@ -222,6 +223,7 @@ class clientAVG(Client):
 
                     batch_time.update(time.time() - end)
                     end = time.time()
+                    batch_idx += 1
 
                     bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                         batch=batch_idx,

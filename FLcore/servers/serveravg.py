@@ -10,7 +10,6 @@ from tensorboardX import SummaryWriter
 
 from ..clients.clientavg import clientAVG
 from ..servers.serverbase import Server
-from ..utils import prepare_bptt_ottt, prepare_hlop_out
 
 __all__ = ['FedAvg']
 
@@ -18,20 +17,39 @@ __all__ = ['FedAvg']
 class FedAvg(Server):
     def __init__(self, args, xtrain, ytrain, xtest, ytest, taskcla, model):
         super().__init__(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-        self.set_slow_clients()
         self.set_clients(clientAVG, self.client_trainsets, model, taskcla)
         self.time_cost = []
 
     def execute(self):
         # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）
-        bptt, ottt = prepare_bptt_ottt(self.args.experiment_name)
+        bptt, ottt = False, False
+        if self.args.experiment_name.endswith('bptt'):
+            bptt, ottt = True, False
+        elif self.args.experiment_name.endswith('ottt'):
+            bptt, ottt = False, True
+
         if bptt or ottt:
             self.args.use_replay = False
 
-        # 如果使用HLOP-SNN方法，那么就需要获取相关参数
-        # if self.args.use_hlop:
-        #     hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1 = prepare_hlop_out(self.args.experiment_name)
-        hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1 = prepare_hlop_out(self.args.experiment_name)
+        hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1 = [], [], []
+        if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
+            hlop_out_num = [80, 200, 100]
+            hlop_out_num_inc = [70, 70, 70]
+        elif self.args.experiment_name == 'cifar':  # cifar 实验
+            hlop_out_num = [6, 100, 200]
+            hlop_out_num_inc = [2, 20, 40]
+        elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
+            hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20], [360, 360],
+                            [360, 720, 40],
+                            [720, 720]]
+            hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4], [48, 48]]
+            hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
+        elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
+            hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200], [200, 200, 16],
+                            [200, 200]]
+            hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
+                                [200, 200, 16],
+                                [200, 200]]
 
         task_learned = []
         task_count = 0
@@ -41,15 +59,75 @@ class FedAvg(Server):
 
         acc_matrix = np.zeros((total_task_num, total_task_num))
 
-        for task_id, ncla in self.taskcla:
+        for task_id, num_class in self.taskcla:
             task_learned.append(task_id)
             writer = SummaryWriter(os.path.join(self.args.root_path, 'task{task_id}'.format(task_id=task_id)))
 
-            self.adjust_for_HLOP_before_train_task(ncla, task_count, hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1)
+            # pmnist/pmnist_bptt/pmnist_ottt 实验
+            if self.args.experiment_name.startswith('pmnist'):
+                if task_count == 0:
+                    self.global_model.add_hlop_subspace(hlop_out_num)
+                    self.global_model.to(self.device)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(hlop_out_num)
+                        client.local_model.to(self.device)
+                else:
+                    if task_count % 3 == 0:
+                        hlop_out_num_inc[0] -= 20
+                        hlop_out_num_inc[1] -= 20
+                        hlop_out_num_inc[2] -= 20
+                    self.global_model.add_hlop_subspace(hlop_out_num_inc)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(hlop_out_num_inc)
+            elif self.args.experiment_name == 'cifar':  # cifar 实验
+                if task_count == 0:
+                    self.global_model.add_hlop_subspace(hlop_out_num)
+                    self.global_model.to(self.device)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(hlop_out_num)
+                        client.local_model.to(self.device)
+                else:
+                    self.global_model.add_classifier(num_class)
+                    self.global_model.add_hlop_subspace(hlop_out_num_inc)
+                    for client in self.clients:
+                        client.local_model.add_classifier(num_class)
+                        client.local_model.add_hlop_subspace(hlop_out_num_inc)
+            elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
+                if task_count == 0:
+                    self.global_model.add_hlop_subspace(hlop_out_num)
+                    self.global_model.to(self.device)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(hlop_out_num)
+                        client.local_model.to(self.device)
+                else:
+                    self.global_model.add_classifier(num_class)
+                    for client in self.clients:
+                        client.local_model.add_classifier(num_class)
+                    if task_count < 6:
+                        self.global_model.add_hlop_subspace(hlop_out_num_inc)
+                        for client in self.clients:
+                            client.local_model.add_hlop_subspace(hlop_out_num_inc)
+                    else:
+                        self.global_model.add_hlop_subspace(hlop_out_num_inc1)
+                        for client in self.clients:
+                            client.local_model.add_hlop_subspace(hlop_out_num_inc1)
+            elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
+                if task_count == 0:
+                    self.global_model.add_hlop_subspace(hlop_out_num)
+                    self.global_model.to(self.device)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(hlop_out_num)
+                        client.local_model.to(self.device)
+                else:
+                    self.global_model.add_classifier(num_class)
+                    self.global_model.add_hlop_subspace(hlop_out_num_inc)
+                    for client in self.clients:
+                        client.local_model.add_classifier(num_class)
+                        client.local_model.add_hlop_subspace(hlop_out_num_inc)
 
             for client in self.clients:
                 if self.args.use_replay:
-                    client.set_replay_data(task_id, ncla)
+                    client.set_replay_data(task_id, num_class)
                 client.set_optimizer(task_id, False)
                 client.set_learning_rate_scheduler(False)
 
@@ -87,9 +165,13 @@ class FedAvg(Server):
                     print('{:5.1f}% '.format(acc_matrix[i_a, j_a] * 100), end='')
                 print()
 
-            # if self.args.use_hlop:
-            #     self.adjust_for_HLOP_after_train_task()
-            self.adjust_for_HLOP_after_train_task()
+            self.global_model.to('cpu')
+            self.global_model.merge_hlop_subspace()
+            self.global_model.to(self.device)
+            for client in self.clients:
+                client.local_model.to('cpu')
+                client.local_model.merge_hlop_subspace()
+                client.local_model.to(self.device)
 
             # 如果重放并且起码参与了一个任务
             if self.args.use_replay and task_count >= 1:

@@ -15,18 +15,90 @@ from torch.utils.data import Dataset
 # 客户端数据集处理相关函数
 # ----------------------------------------------------------------------------------------------------------------------
 class GeneralDataset(Dataset):
-    def __init__(self, data, label, num_classes):
+    def __init__(self, data, labels, n_class):
         self.data = data
-        self.labels = label
-        self.num_classes = num_classes
+        self.labels = labels
+        self.n_class = n_class
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
-        data = self.data[index]
+        data = self.data[index].float()
         label = self.labels[index]
         return data, label
+
+
+def split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla):
+    # 获取客户端个数
+    n_client = args.num_clients
+
+    client_datasets = []
+    for task in taskcla:
+        task_id, task_n_class = task[0], task[1]
+
+        # partition[i][j] 是客户端j从类别i中获得的样本的百分比
+        partition = np.random.dirichlet([args.dirichlet_concentration] * n_client, size=task_n_class)
+
+        labels_sorted = ytrain[task_id].sort()
+        class_index_list = list(zip(labels_sorted.values.tolist(), labels_sorted.indices.tolist()))
+
+        # 存放每个类别的标签索引的字典
+        class_index_map = defaultdict(list)
+        for cla, idx in class_index_list:
+            class_index_map[cla].append(idx)
+
+        dict_clients = defaultdict(list)
+        # 划分数据给客户端
+        # 统计每个客户端的数据分布，即每个客户端有多少张各种类别的图片
+        class_ndata_map_for_clients = []
+
+        # 对于每一个类别
+        for i in range(task_n_class):
+            n_data_of_class = len(class_index_map[i])
+            # 向所有的客户端划分图片
+            ndata_for_clients = []
+            # 对于每一个客户端
+            for task in range(n_client):
+                # 第j个客户端从某类数据中分得的数量
+                n_data_of_clients = int(partition[i][task] * n_data_of_class)
+                if n_data_of_clients > 0:
+                    ndata_for_clients.append(n_data_of_clients)
+                else:
+                    ndata_for_clients.append(0)
+                dict_clients[task] += class_index_map[i][:n_data_of_clients]
+                del class_index_map[i][:n_data_of_clients]
+            class_ndata_map_for_clients.append(ndata_for_clients)
+            # 给客户端0进行补全
+            dict_clients[0] += class_index_map[i]
+
+        class_ndata_map_for_clients = np.array(class_ndata_map_for_clients)
+        class_ndata_map_for_clients = class_ndata_map_for_clients.T
+
+        n_data_of_clients = np.sum(class_ndata_map_for_clients, axis=1)
+        n_data_of_classes = np.sum(class_ndata_map_for_clients, axis=0)
+        print('针对任务：{}'.format(task_id))
+        print('     每个客户端的数据分布：{}'.format(class_ndata_map_for_clients.tolist()))
+        print('     每个客户端的总数据量：{}'.format(n_data_of_clients.tolist()))
+        print('     每个类别的数据量：{}'.format(n_data_of_classes.tolist()))
+
+        client_task_datasets = []
+        for k in range(n_client):
+            client_data_idx = dict_clients[k]
+            client_data_x = xtrain[task_id][client_data_idx]
+            client_data_y = ytrain[task_id][client_data_idx]
+            client_dataset = GeneralDataset(data=client_data_x, labels=client_data_y, n_class=task_n_class)
+            client_task_datasets.append(client_dataset)
+        client_datasets.append(client_task_datasets)
+
+    splitted_trainsets = []
+    for i in range(n_client):
+        splitted_trainset = {}
+        for task in taskcla:
+            splitted_trainset[f'task {task[0]}'] = client_datasets[task[0]][i]
+        splitted_trainsets.append(splitted_trainset)
+
+    return splitted_trainsets
 
 
 def calculate_distribution_by_emd(emd_target, num_data, num_classes):
@@ -82,7 +154,7 @@ def calculate_emd_by_distribution(distribution):
 
     sum_squares = 0
     for i in range(num_classes):
-        sum_squares += (distribution[i]/ total_data_num - iid_distribution[i]) ** 2
+        sum_squares += (distribution[i] / total_data_num - iid_distribution[i]) ** 2
     return np.sqrt(sum_squares)
 
 
@@ -99,56 +171,6 @@ def calculate_indexes_by_distribution(distribution, classes_indexes, num_data_us
 
     return indexes
 
-def distribute_data_dirichlet(dataset, args, n_class=10):
-    np.random.seed(args.seed)
-    num_clean_agents = args.num_users
-    print(args.concent)
-    # partition[c][i] is the fraction of samples agent i gets from class
-    partition = np.random.dirichlet([args.concent] * num_clean_agents, size=n_class)
-    # print(partition)
-
-    labels_sorted = dataset.targets.sort()
-    class_by_labels = list(zip(labels_sorted.values.tolist(), labels_sorted.indices.tolist()))
-    # convert list to a dictionary, e.g., at labels_dict[0], we have indexes for class 0
-    # labels_dict[0]：所有0类的数据，此时只是将所有同类的数据放在一起了，还没有将他们划分给客户端
-    labels_dict = defaultdict(list)
-    for k, v in class_by_labels:
-        labels_dict[k].append(v)
-    # print(labels_dict.keys())#数据集标签
-
-    dict_users = defaultdict(list)
-    # 划分数据给客户端
-    # 统计每个客户端的数据分布，即每个客户端有多少张各种类别的图片
-    pic_distribution_every_client = []
-    for c in range(n_class):
-        # num of samples of class c in dataset 某类图片的总量
-        n_classC_items = len(labels_dict[c])
-        # 向所有的客户端划分图片
-        pic_distribution_one_client = []
-        for i in range(num_clean_agents):
-            # num. of samples agent i gets from class c 第i个客户端从某类图片中分得的数量
-            n_agentI_items = int(partition[c][i] * n_classC_items)
-            if n_agentI_items > 0:
-                pic_distribution_one_client.append(n_agentI_items)
-            else:
-                pic_distribution_one_client.append(0)
-            dict_users[i] += labels_dict[c][:n_agentI_items]
-            del labels_dict[c][:n_agentI_items]
-        pic_distribution_every_client.append(pic_distribution_one_client)
-        # if any class c item remains due to flooring, give em to first agent 分剩的都给第0个客户端
-        dict_users[0] += labels_dict[c]
-        pic_distribution_one_client[0] += len(labels_dict[c])
-
-    pic_distribution_every_client = np.array(pic_distribution_every_client)
-    pic_distribution_every_client = pic_distribution_every_client.T
-    # print(dict_users)
-    # print("每个客户端的数据分布：")
-    # print(pic_distribution_every_client)
-    sum_res = np.sum(pic_distribution_every_client, axis=1)
-    sum_ = np.sum(pic_distribution_every_client, axis=0)
-    # print("每个客户端的总数据量：{}".format(sum_res))
-
-    return dict_users, pic_distribution_every_client, sum_res, sum_
 
 def split_trainset_by_emd(xtrain, ytrain, taskcla: List[tuple], emd_targets: List[list], num_data: List[list]):
     each_class_indexes = [None] * len(taskcla)
@@ -158,8 +180,10 @@ def split_trainset_by_emd(xtrain, ytrain, taskcla: List[tuple], emd_targets: Lis
         task_id = task[0]
         task_num_classes = task[1]
         # 获取任务的数据集
-        each_class_indexes[task_id] = {key: torch.where(torch.tensor(trainset[f'task {task_id}'].labels == key))[0].cpu().detach().numpy() for key in range(task_num_classes)}
-        num_data_used[task_id] = [0]*task_num_classes
+        each_class_indexes[task_id] = {
+            key: torch.where(torch.tensor(trainset[f'task {task_id}'].labels == key))[0].cpu().detach().numpy() for key
+            in range(task_num_classes)}
+        num_data_used[task_id] = [0] * task_num_classes
 
     num_clients = len(emd_targets)
     splitted_trainsets = []
@@ -178,10 +202,12 @@ def split_trainset_by_emd(xtrain, ytrain, taskcla: List[tuple], emd_targets: Lis
             # 计算客户端i的task任务的数据集分布
             done, distribution = False, []
             while not done:
-                done, distribution = calculate_distribution_by_emd(emd_targets[i][task_id], num_data[i][task_id], task_num_classes)
+                done, distribution = calculate_distribution_by_emd(emd_targets[i][task_id], num_data[i][task_id],
+                                                                   task_num_classes)
             print(distribution)
 
-            indexes = calculate_indexes_by_distribution(distribution, each_class_indexes[task_id], num_data_used[task_id])
+            indexes = calculate_indexes_by_distribution(distribution, each_class_indexes[task_id],
+                                                        num_data_used[task_id])
             splitted_trainset[f'task {task_id}'] = torch.utils.data.Subset(trainset[f'task {task_id}'], indexes)
             emd_real = calculate_emd_by_distribution(distribution)
             client_emd_real.append(emd_real)

@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Description : 服务器的基础类
-import os
 import copy
-import time
+import os
 import random
-from collections import defaultdict
+import time
 
 import numpy as np
 import torch
@@ -13,8 +12,7 @@ from progress.bar import Bar
 from torch import nn
 from torch.utils.data import DataLoader
 
-from FLcore.utils import AverageMeter, accuracy, reset_net, GeneralDataset, split_trainset_by_emd, \
-    split_trainset_by_dirichlet
+from FLcore.utils import AverageMeter, accuracy, reset_net, GeneralDataset, split_trainset_by_dirichlet
 
 __all__ = ['Server']
 
@@ -27,32 +25,27 @@ class Server(object):
 
         self.xtrain = xtrain
         self.ytrain = ytrain
+        self.client_trainsets = split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla)
 
         self.xtest = xtest
         self.ytest = ytest
-
-        self.client_trainsets = split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla)
-
-        self.testset = {
-            f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1]) for item
-            in self.taskcla}
+        self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1])
+                        for item in self.taskcla}
 
         self.global_model = copy.deepcopy(model)
+        self.global_model.to(self.device)
+
         self.loss = nn.CrossEntropyLoss()
         self.batch_size = args.batch_size
         self.global_rounds = args.global_rounds
         self.replay_global_rounds = args.replay_global_rounds
         self.timesteps = args.timesteps
 
-        self.num_clients = args.num_clients
+        self.n_client = args.n_client
         self.clients = []
         self.selected_clients = []
 
-        self.received_info = {
-            'client_ids': [],
-            'client_train_samples_weights': [],
-            'client_models': []
-        }
+        self.received_info = {}
 
         self.root_path = os.path.join(args.root_path, 'Server')
         self.logs_path = os.path.join(self.root_path, 'logs')
@@ -63,7 +56,7 @@ class Server(object):
     # ------------------------------------------------------------------------------------------------------------------
     # 生成现有的客户端
     def set_clients(self, clientObj, trainsets, model, taskcla):
-        for i in range(self.num_clients):
+        for i in range(self.n_client):
             client = clientObj(args=self.args, id=i, trainset=trainsets[i], local_model=copy.deepcopy(model),
                                taskcla=taskcla)
             self.clients.append(client)
@@ -76,7 +69,7 @@ class Server(object):
     def select_clients(self, task_id):
         # 除上述要求外，可挑选的客户端还需要其数据可进行task_id任务
         selective_clients = [client for client in self.clients if task_id in client.local_tasks]
-        self.selected_clients = list(np.random.choice(selective_clients, self.num_clients, replace=False))
+        self.selected_clients = list(np.random.choice(selective_clients, self.n_client, replace=False))
 
     # 向客户端发送全局模型
     def send_models(self):
@@ -102,7 +95,7 @@ class Server(object):
         assert (len(self.selected_clients) > 0)
         # 计算选中的客户端中的活跃客户端数量
         # 随机采样
-        activate_clients = random.sample(self.selected_clients, self.num_clients)
+        activate_clients = random.sample(self.selected_clients, self.n_client)
 
         self.received_info = {
             'client_ids': [],
@@ -133,7 +126,7 @@ class Server(object):
         self.global_model.eval()
         testset = self.testset[f'task {task_id}']
         testloader = DataLoader(testset, batch_size=self.batch_size, shuffle=True, drop_last=False)
-        num_testset = len(testset)
+        n_testset = len(testset)
 
         batch_time = AverageMeter()
         losses = AverageMeter()
@@ -141,11 +134,11 @@ class Server(object):
         top5 = AverageMeter()
         end = time.time()
 
-        bar = Bar('Server Testing', max=((num_testset - 1) // self.batch_size + 1))
+        bar = Bar('Server Testing', max=((n_testset - 1) // self.batch_size + 1))
 
+        n_testdata = 0
         test_acc = 0
         test_loss = 0
-        test_num = 0
         batch_idx = 0
 
         with torch.no_grad():
@@ -175,7 +168,7 @@ class Server(object):
                     out_, out = self.global_model(data, task_id, projection=False, update_hlop=False)
                     loss = self.loss(out, label)
 
-                test_num += label.numel()
+                n_testdata += label.numel()
                 test_loss += loss.item() * label.numel()
                 test_acc += (out.argmax(1) == label).float().sum().item()
 
@@ -190,7 +183,7 @@ class Server(object):
 
                 bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                     batch=batch_idx,
-                    size=((num_testset - 1) // self.batch_size + 1),
+                    size=((n_testset - 1) // self.batch_size + 1),
                     bt=batch_time.avg,
                     total=bar.elapsed_td,
                     eta=bar.eta_td,
@@ -201,11 +194,10 @@ class Server(object):
                 bar.next()
         bar.finish()
 
-        test_acc /= test_num
-        test_loss /= test_num
+        test_acc /= n_testdata
+        test_loss /= n_testdata
 
-        print("Test Accuracy: {:.4f}".format(test_acc))
-        print("Test Loss: {:.4f}".format(test_loss))
+        print('Test Accuracy: {:.4f}    Test Loss: {:.4f}'.format(test_acc, test_loss))
         return test_loss, test_acc
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -230,4 +222,3 @@ class Server(object):
         model_abs_path = os.path.join(self.models_path, model_name)
         assert os.path.exists(model_abs_path)
         self.global_model = torch.load(model_abs_path)
-

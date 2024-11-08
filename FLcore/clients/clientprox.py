@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# @Description : FedAvg算法的客户端类
+# @Description : FedProx算法的客户端类
 import time
+import copy
 
+import numpy as np
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -10,21 +12,23 @@ from ..utils import AverageMeter
 from ..clients.clientbase import Client
 from ..utils import accuracy, reset_net
 
-__all__ = ['clientAVG']
 
-
-class clientAVG(Client):
+class clientProx(Client):
     def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
         super().__init__(args, id, trainset, local_model, taskcla, **kwargs)
+        self.mu = args.FedProx_mu
+        self.global_model = None
 
     def set_parameters(self, model):
         """
-        根据接收到的模型参数设置本地模型参数
-        :param model: 接收到的模型
-        :return:
+        从服务器接收到全局的模型更新本地的模型
+        @param model: 全局的模型
+        @return:
         """
-        for new_param, old_param in zip(model.parameters(), self.local_model.parameters()):
-            old_param.data = new_param.data.clone()
+        self.global_model = copy.deepcopy(self.local_model)
+        for p, gp, lp in zip(model.parameters(), self.global_model.parameters(), self.local_model.parameters()):
+            gp.data = p.data.clone()
+            lp.data = p.data.clone()
 
     def train(self, task_id):
         # --------------------------------------------------------------------------------------------------------------
@@ -68,16 +72,17 @@ class clientAVG(Client):
         train_loss = 0
         batch_idx = 0
 
-        # 开始时间
+        samples_index = np.arange(n_trainset)
+        np.random.shuffle(samples_index)
+
         start_time = time.time()
-        # 本地轮次的操作
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
                 data = data.to(self.device)
                 label = label.to(self.device)
 
                 if ottt:
-                    total_loss = 0.0
+                    total_loss = 0.
                     if not self.args.online_update:
                         self.optimizer.zero_grad()
                     for t in range(self.timesteps):
@@ -87,17 +92,19 @@ class clientAVG(Client):
 
                         flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                         if task_id == 0:
-                            out_fr_, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag,
-                                                               init=init)
+                            out_fr_, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag, init=init)
                         else:
-                            out_fr_, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop,
-                                                               proj_id_list=[0], update_hlop=flag,
-                                                               fix_subspace_id_list=[0], init=init)
+                            out_fr_, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0], init=init)
                         if t == 0:
                             total_fr = out_fr.clone().detach()
                         else:
                             total_fr += out_fr.clone().detach()
-                        loss = self.loss(out_fr, label) / self.timesteps
+                        # 根据FedProx论文计算loss
+                        proximal_term = 0.0
+                        for lp, gp in zip(self.local_model.parameters(), self.global_model.parameters()):
+                            proximal_term += (lp - gp).norm(2)
+                        loss = self.loss(out_fr, label) / self.timesteps + (self.mu / 2) * proximal_term
+
                         loss.backward()
                         total_loss += loss.detach()
                         if self.args.online_update:
@@ -106,7 +113,6 @@ class clientAVG(Client):
                         self.optimizer.step()
                     train_loss += total_loss.item() * label.numel()
                     out = total_fr
-
                 elif bptt:
                     self.optimizer.zero_grad()
 
@@ -114,32 +120,35 @@ class clientAVG(Client):
                     if task_id == 0:
                         out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
                     else:
-                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
-                                                     update_hlop=flag, fix_subspace_id_list=[0])
-                    loss = self.loss(out, label)
+                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0])
+
+                    # 根据FedProx论文计算loss
+                    proximal_term = 0.0
+                    for lp, gp in zip(self.local_model.parameters(), self.global_model.parameters()):
+                        proximal_term += (lp - gp).norm(2)
+                    loss = self.loss(out, label) + (self.mu / 2) * proximal_term
+                    # loss反向传播
                     loss.backward()
+                    # 参数更新
                     self.optimizer.step()
                     reset_net(self.local_model)
                     train_loss += loss.item() * label.numel()
-
                 else:
                     data = data.unsqueeze(1)
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
-                    # ----------------------------------------------------------------------------------------------
-                    # 核心网络训练过程
-                    # ----------------------------------------------------------------------------------------------
-                    # 清空参数梯度
                     self.optimizer.zero_grad()
-                    # 模型推理
 
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
                         out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
                     else:
-                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
-                                                     update_hlop=flag, fix_subspace_id_list=[0])
-                    # 计算loss
-                    loss = self.loss(out, label)
+                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0])
+
+                    # 根据FedProx论文计算loss
+                    proximal_term = 0.0
+                    for lp, gp in zip(self.local_model.parameters(), self.global_model.parameters()):
+                        proximal_term += (lp - gp).norm(2)
+                    loss = self.loss(out, label) + (self.mu / 2) * proximal_term
                     # loss反向传播
                     loss.backward()
                     # 参数更新
@@ -160,6 +169,7 @@ class clientAVG(Client):
                 end = time.time()
                 batch_idx += 1
 
+                # plot progress
                 bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                     batch=batch_idx,
                     size=((n_trainset - 1) // self.batch_size + 1) * self.local_epochs,
@@ -172,13 +182,10 @@ class clientAVG(Client):
                 )
                 bar.next()
         bar.finish()
-        self.save_local_model(str(time.time()))
 
         train_loss /= n_traindata
         train_acc /= n_traindata
-
         self.learning_rate_scheduler.step()
-
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
 
@@ -188,8 +195,7 @@ class clientAVG(Client):
 
         for replay_task in tasks_learned:
             replay_trainset = self.replay_trainset[f'task {replay_task}']
-            replay_trainloader = DataLoader(replay_trainset, batch_size=self.replay_batch_size, shuffle=True,
-                                            drop_last=False)
+            replay_trainloader = DataLoader(replay_trainset, batch_size=self.replay_batch_size, shuffle=True, drop_last=False)
             n_replay_trainset = len(replay_trainset)
 
             batch_time = AverageMeter()
@@ -197,8 +203,7 @@ class clientAVG(Client):
             top1 = AverageMeter()
             top5 = AverageMeter()
             end = time.time()
-            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, replay_task),
-                      max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
+            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, replay_task), max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
 
             n_replay_traindata = 0
             train_acc = 0
@@ -216,7 +221,11 @@ class clientAVG(Client):
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
                     out_, out = self.local_model(data, replay_task, projection=False, update_hlop=False)
 
-                    loss = self.loss(out, label)
+                    # 根据FedProx论文计算loss
+                    proximal_term = 0.0
+                    for lp, gp in zip(self.local_model.parameters(), self.global_model.parameters()):
+                        proximal_term += (lp - gp).norm(2)
+                    loss = self.loss(out, label) + (self.mu / 2) * proximal_term
                     loss.backward()
                     self.optimizer.step()
                     train_loss += loss.item() * label.numel()
@@ -233,15 +242,15 @@ class clientAVG(Client):
                     batch_idx += 1
 
                     bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                        batch=batch_idx,
-                        size=((n_replay_trainset - 1) // self.replay_batch_size + 1) * self.replay_local_epochs,
-                        bt=batch_time.avg,
-                        total=bar.elapsed_td,
-                        eta=bar.eta_td,
-                        loss=losses.avg,
-                        top1=top1.avg,
-                        top5=top5.avg,
-                    )
+                            batch=batch_idx,
+                            size=((n_replay_trainset - 1) // self.replay_batch_size + 1) * self.replay_local_epochs,
+                            bt=batch_time.avg,
+                            total=bar.elapsed_td,
+                            eta=bar.eta_td,
+                            loss=losses.avg,
+                            top1=top1.avg,
+                            top5=top5.avg,
+                        )
                     bar.next()
             bar.finish()
             self.learning_rate_scheduler.step()

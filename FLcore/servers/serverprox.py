@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# @Description : FedAvg算法的服务器类
+# @Description : FedProx算法的服务器类
 import copy
 import os
 import time
@@ -8,16 +8,14 @@ import time
 import numpy as np
 from tensorboardX import SummaryWriter
 
-from ..clients.clientavg import clientAVG
+from ..clients.clientprox import clientProx
 from ..servers.serverbase import Server
 
-__all__ = ['FedAvg']
 
-
-class FedAvg(Server):
+class FedProx(Server):
     def __init__(self, args, xtrain, ytrain, xtest, ytest, taskcla, model):
         super().__init__(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-        self.set_clients(clientAVG, self.client_trainsets, model, taskcla)
+        self.set_clients(clientProx, self.client_trainsets, model, taskcla)
         self.time_cost = []
 
     def execute(self):
@@ -32,22 +30,18 @@ class FedAvg(Server):
             self.args.use_replay = False
 
         hlop_out_num, hlop_out_num_inc, hlop_out_num_inc1 = [], [], []
-        # pmnist/pmnist_bptt/pmnist_ottt 实验
-        if self.args.experiment_name.startswith('pmnist'):
+        if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
             hlop_out_num = [80, 200, 100]
             hlop_out_num_inc = [70, 70, 70]
-        # cifar 实验
-        elif self.args.experiment_name == 'cifar':
+        elif self.args.experiment_name == 'cifar':  # cifar 实验
             hlop_out_num = [6, 100, 200]
             hlop_out_num_inc = [2, 20, 40]
-        # miniimagenet 实验
-        elif self.args.experiment_name == 'miniimagenet':
+        elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
             hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20],
                             [360, 360], [360, 720, 40], [720, 720]]
             hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4], [48, 48]]
             hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
-        # fivedataset/fivedataset_domain 实验
-        elif self.args.experiment_name.startswith('fivedataset'):
+        elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
             hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8],
                             [200, 200], [200, 200, 16], [200, 200]]
             hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8],
@@ -56,14 +50,13 @@ class FedAvg(Server):
         task_learned = []
         task_count = 0
 
-        tasks = [task_id for task_id, n_task_class in self.taskcla]
-        n_task = len(tasks)
+        tasks = [task_id for task_id, ncla in self.taskcla]
+        total_task_num = len(tasks)
 
-        acc_matrix = np.zeros((n_task, n_task))
+        acc_matrix = np.zeros((total_task_num, total_task_num))
 
         for item in self.taskcla:
             task_id, n_task_class = item[0], item[1]
-
             task_learned.append(task_id)
             writer = SummaryWriter(os.path.join(self.args.root_path, 'task{task_id}'.format(task_id=task_id)))
 
@@ -83,8 +76,7 @@ class FedAvg(Server):
                     self.global_model.add_hlop_subspace(hlop_out_num_inc)
                     for client in self.clients:
                         client.local_model.add_hlop_subspace(hlop_out_num_inc)
-            # cifar 实验
-            elif self.args.experiment_name == 'cifar':
+            elif self.args.experiment_name == 'cifar':  # cifar 实验
                 if task_count == 0:
                     self.global_model.add_hlop_subspace(hlop_out_num)
                     self.global_model.to(self.device)
@@ -97,8 +89,7 @@ class FedAvg(Server):
                     for client in self.clients:
                         client.local_model.add_classifier(n_task_class)
                         client.local_model.add_hlop_subspace(hlop_out_num_inc)
-            # miniimagenet 实验
-            elif self.args.experiment_name == 'miniimagenet':
+            elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
                 if task_count == 0:
                     self.global_model.add_hlop_subspace(hlop_out_num)
                     self.global_model.to(self.device)
@@ -117,8 +108,7 @@ class FedAvg(Server):
                         self.global_model.add_hlop_subspace(hlop_out_num_inc1)
                         for client in self.clients:
                             client.local_model.add_hlop_subspace(hlop_out_num_inc1)
-            # fivedataset/fivedataset_domain 实验
-            elif self.args.experiment_name.startswith('fivedataset'):
+            elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
                 if task_count == 0:
                     self.global_model.add_hlop_subspace(hlop_out_num)
                     self.global_model.to(self.device)
@@ -138,6 +128,7 @@ class FedAvg(Server):
                 client.set_optimizer(task_id, False)
                 client.set_learning_rate_scheduler(False)
 
+            # 对于任务task_id，进行联邦训练
             for global_round in range(1, self.global_rounds + 1):
                 start_time = time.time()
                 # ①挑选合适客户端
@@ -145,7 +136,7 @@ class FedAvg(Server):
                 # ②服务器向选中的客户端发放全局模型
                 self.send_models()
                 # ③选中的客户端进行训练
-                for client in self.clients:
+                for client in self.selected_clients:
                     client.train(task_id)
                 # ④服务器接收训练后的客户端模型
                 self.receive_models()
@@ -153,10 +144,10 @@ class FedAvg(Server):
                 self.aggregate_parameters()
 
                 self.time_cost.append(time.time() - start_time)
-                print('-' * 10, 'Task', task_id, 'Time Cost: ', self.time_cost[-1], '-' * 10)
+                print('-' * 25, 'Task', task_id, 'Time Cost', self.time_cost[-1], '-' * 25)
 
                 print(f"\n-------------Round number: {global_round}-------------")
-                print("\033[93mEvaluating\033[0m")
+                print("\nEvaluate global model")
                 test_loss, test_acc = self.evaluate(task_id)
                 writer.add_scalar('test_loss', test_loss, global_round)
                 writer.add_scalar('test_acc', test_acc, global_round)

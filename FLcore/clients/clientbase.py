@@ -291,20 +291,35 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.lr_scheduler)
 
-    def set_replay_data(self, task_id, ncla):
+    def set_replay_data(self, task_id, n_task_class):
         replay_data, replay_label = [], []
+        trainset = self.trainset[f'task {task_id}']
+        data_of_classes = {key: torch.where(torch.tensor(trainset.labels.numpy() == key))[0] for key in range(n_task_class)}
 
-        data_of_classes = {key: torch.where(torch.tensor(self.trainset[f'task {task_id}'].labels == key))[0].cpu().detach().numpy() for key in range(ncla)}
-
-        for class_name in range(ncla):
-            if len(data_of_classes[class_name]) < self.memory_size:
-                replay_data.extend(data_of_classes[class_name])
-                replay_label.extend([class_name] * len(data_of_classes[class_name]))
+        for i in range(n_task_class):
+            if len(data_of_classes[i]) == 0:
+                continue
+            elif len(data_of_classes[i]) < self.args.memory_size:
+                replay_data.extend(trainset.data[data_of_classes[i]])
+                replay_label.extend(trainset.labels[data_of_classes[i]])
             else:
-                replay_data.extend(data_of_classes[class_name][:self.memory_size])
-                replay_label.extend([class_name] * self.memory_size)
+                replay_data.extend(trainset.data[data_of_classes[i][:self.args.memory_size]])
+                replay_label.extend(trainset.labels[data_of_classes[i][:self.args.memory_size]])
 
-        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data, labels=replay_label, n_class=ncla)
+        # for i in range(n_task_class):
+        #     n = self.args.memory_size
+        #     idx = 0
+        #     while n > 0:
+        #         if trainset.labels[idx].numpy() == i:
+        #             replay_data.append(trainset.data[idx])
+        #             replay_label.append(trainset.labels[idx])
+        #             n -= 1
+        #         idx += 1
+
+        replay_data = torch.stack(replay_data, dim=0)
+        replay_label = torch.stack(replay_label, dim=0)
+
+        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data, labels=replay_label, n_class=n_task_class)
 
     def train(self, task_id):
         pass

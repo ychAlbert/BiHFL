@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# @Description : FedAvg算法的客户端类
+# @Description : MOON算法的客户端类
+import copy
 import time
 
+import torch
+import numpy as np
+import torch.nn.functional as F
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -10,21 +14,19 @@ from ..utils import AverageMeter
 from ..clients.clientbase import Client
 from ..utils import accuracy, reset_net
 
-__all__ = ['clientAVG']
 
-
-class clientAVG(Client):
+class clientMOON(Client):
     def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
         super().__init__(args, id, trainset, local_model, taskcla, **kwargs)
+        self.tau = args.MOON_tau
+        self.mu = args.MOON_mu
+        self.global_model = None
+        self.old_local_model = None
 
     def set_parameters(self, model):
-        """
-        根据接收到的模型参数设置本地模型参数
-        :param model: 接收到的模型
-        :return:
-        """
-        for new_param, old_param in zip(model.parameters(), self.local_model.parameters()):
-            old_param.data = new_param.data.clone()
+        for gp, lp in zip(model.parameters(), self.local_model.parameters()):
+            lp.data = gp.data.clone()
+        self.global_model = copy.deepcopy(model)
 
     def train(self, task_id):
         # --------------------------------------------------------------------------------------------------------------
@@ -59,6 +61,7 @@ class clientAVG(Client):
         # --------------------------------------------------------------------------------------------------------------
         # 开启模型训练模式
         self.local_model.train()
+        self.old_local_model = copy.deepcopy(self.local_model)
 
         if task_id != 0:
             self.local_model.fix_bn()
@@ -68,7 +71,6 @@ class clientAVG(Client):
         train_loss = 0
         batch_idx = 0
 
-        # 开始时间
         start_time = time.time()
         # 本地轮次的操作
         for local_epoch in range(1, self.local_epochs + 1):
@@ -77,7 +79,7 @@ class clientAVG(Client):
                 label = label.to(self.device)
 
                 if ottt:
-                    total_loss = 0.0
+                    total_loss = 0.
                     if not self.args.online_update:
                         self.optimizer.zero_grad()
                     for t in range(self.timesteps):
@@ -87,17 +89,31 @@ class clientAVG(Client):
 
                         flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                         if task_id == 0:
-                            out_fr_, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag,
-                                                               init=init)
+                            rep, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag, init=init)
+                            rep_old, out_fr_old = self.old_local_model(data, task_id, projection=False,
+                                                                       update_hlop=flag, init=init)
+                            rep_global, out_fr_global = self.global_model(data, task_id, projection=False,
+                                                                          update_hlop=flag, init=init)
                         else:
-                            out_fr_, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop,
-                                                               proj_id_list=[0], update_hlop=flag,
-                                                               fix_subspace_id_list=[0], init=init)
+                            rep, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop,
+                                                           proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0],
+                                                           init=init)
+                            rep_old, out_fr_old = self.old_local_model(data, task_id, projection=self.args.use_hlop,
+                                                                       proj_id_list=[0], update_hlop=flag,
+                                                                       fix_subspace_id_list=[0], init=init)
+                            rep_global, out_fr_global = self.global_model(data, task_id, projection=self.args.use_hlop,
+                                                                          proj_id_list=[0], update_hlop=flag,
+                                                                          fix_subspace_id_list=[0], init=init)
+
                         if t == 0:
                             total_fr = out_fr.clone().detach()
                         else:
                             total_fr += out_fr.clone().detach()
                         loss = self.loss(out_fr, label) / self.timesteps
+                        loss_con = - torch.log(torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) / (
+                                    torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) + torch.exp(
+                                F.cosine_similarity(rep, rep_old) / self.tau)))
+                        loss += self.mu * torch.mean(loss_con)
                         loss.backward()
                         total_loss += loss.detach()
                         if self.args.online_update:
@@ -106,43 +122,57 @@ class clientAVG(Client):
                         self.optimizer.step()
                     train_loss += total_loss.item() * label.numel()
                     out = total_fr
-
                 elif bptt:
                     self.optimizer.zero_grad()
 
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
-                        out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep_global, out_fr_global = self.global_model(data, task_id, projection=False, update_hlop=flag)
                     else:
-                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
-                                                     update_hlop=flag, fix_subspace_id_list=[0])
+                        rep, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
+                                                    update_hlop=flag, fix_subspace_id_list=[0])
+                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=self.args.use_hlop,
+                                                                   proj_id_list=[0], update_hlop=flag,
+                                                                   fix_subspace_id_list=[0])
+                        rep_global, out_fr_global = self.global_model(data, task_id, projection=self.args.use_hlop,
+                                                                      proj_id_list=[0], update_hlop=flag,
+                                                                      fix_subspace_id_list=[0])
                     loss = self.loss(out, label)
+                    loss_con = - torch.log(torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) / (
+                                torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) + torch.exp(
+                            F.cosine_similarity(rep, rep_old) / self.tau)))
+                    loss += self.mu * torch.mean(loss_con)
                     loss.backward()
                     self.optimizer.step()
                     reset_net(self.local_model)
                     train_loss += loss.item() * label.numel()
-
                 else:
                     data = data.unsqueeze(1)
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
-                    # ----------------------------------------------------------------------------------------------
-                    # 核心网络训练过程
-                    # ----------------------------------------------------------------------------------------------
-                    # 清空参数梯度
                     self.optimizer.zero_grad()
-                    # 模型推理
 
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
-                        out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep_global, out_fr_global = self.global_model(data, task_id, projection=False, update_hlop=flag)
                     else:
-                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
-                                                     update_hlop=flag, fix_subspace_id_list=[0])
-                    # 计算loss
+                        rep, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
+                                                    update_hlop=flag, fix_subspace_id_list=[0])
+                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=self.args.use_hlop,
+                                                                   proj_id_list=[0], update_hlop=flag,
+                                                                   fix_subspace_id_list=[0])
+                        rep_global, out_fr_global = self.global_model(data, task_id, projection=self.args.use_hlop,
+                                                                      proj_id_list=[0], update_hlop=flag,
+                                                                      fix_subspace_id_list=[0])
                     loss = self.loss(out, label)
-                    # loss反向传播
+                    loss_con = - torch.log(torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) / (
+                                torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) + torch.exp(
+                            F.cosine_similarity(rep, rep_old) / self.tau)))
+                    loss += self.mu * torch.mean(loss_con)
                     loss.backward()
-                    # 参数更新
                     self.optimizer.step()
                     train_loss += loss.item() * label.numel()
 
@@ -160,6 +190,7 @@ class clientAVG(Client):
                 end = time.time()
                 batch_idx += 1
 
+                # plot progress
                 bar.suffix = '({batch}/{size}) Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                     batch=batch_idx,
                     size=((n_trainset - 1) // self.batch_size + 1) * self.local_epochs,
@@ -172,13 +203,11 @@ class clientAVG(Client):
                 )
                 bar.next()
         bar.finish()
-        self.save_local_model(str(time.time()))
 
         train_loss /= n_traindata
         train_acc /= n_traindata
-
         self.learning_rate_scheduler.step()
-
+        self.old_local_model = copy.deepcopy(self.local_model)
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
 
@@ -214,9 +243,20 @@ class clientAVG(Client):
 
                     data = data.unsqueeze(1)
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
-                    out_, out = self.local_model(data, replay_task, projection=False, update_hlop=False)
 
+                    rep, out = self.local_model(data, replay_task, projection=False, update_hlop=False)
+                    rep_old, out_fr_old = self.old_local_model(data, replay_task, projection=False, update_hlop=False)
+                    rep_global, out_fr_global = self.global_model(data, replay_task, projection=False,
+                                                                  update_hlop=False)
+
+                    # 计算loss
                     loss = self.loss(out, label)
+
+                    loss_con = - torch.log(torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) / (
+                                torch.exp(F.cosine_similarity(rep, rep_global) / self.tau) + torch.exp(
+                            F.cosine_similarity(rep, rep_old) / self.tau)))
+                    loss += self.mu * torch.mean(loss_con)
+
                     loss.backward()
                     self.optimizer.step()
                     train_loss += loss.item() * label.numel()

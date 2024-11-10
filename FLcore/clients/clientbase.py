@@ -237,7 +237,7 @@ class Client(object):
                     self.learning_rate_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
                                                                                    step_size=self.StepLR_step_size,
                                                                                    gamma=self.StepLR_gamma)
-                elif self.learning_rate_scheduler == 'CosALR':
+                elif self.args.lr_scheduler == 'CosALR':
                     lr_lambda = lambda cur_epoch: (cur_epoch + 1) / self.warmup if cur_epoch < self.warmup else 0.5 * (
                             1 + math.cos((cur_epoch - self.warmup) / (self.CosineAnnealingLR_T_max - self.warmup) * math.pi))
                     self.learning_rate_scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer,

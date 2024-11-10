@@ -1,17 +1,32 @@
 # BiHFL
 Official code repository for the paper BiHFL: A Biologically Inspired Hierarchical Framework for Federated Continual Learning
 
+## Code Structure
+
+The codebase is structured as follows:
+
+- `FLcore/clients`: Contains client-related modules and scripts.
+- `FLcore/dataloader`: Contains data loading scripts for different datasets.
+- `FLcore/models`: Contains model definitions.
+- `FLcore/modules`: Contains reusable module definitions.
+- `FLcore/servers`: Contains server-related modules and scripts.
+- `FLcore/utils.py`: Contains utility functions.
+- `main.py`: The main entry point for running experiments.
+- `main_set.py`: Contains main settings and argument parsing.
 
 ### Installation Steps
 
-1. **Install Dependencies**
+1. **Install PyTorch**:
+   Ensure you have PyTorch installed. You can install it using the official [PyTorch website](https://pytorch.org/get-started/locally/).
+
+2. **Install Additional Dependencies**:
    After installing PyTorch, you need to install additional dependencies. Run the following commands to install the required packages:
 
    ```bash
    pip install scikit-learn
    pip install progress
    pip install tensorboardX
-   ```
+
 ## Quick Start
 
 ### Multi-Client Learning with Replay and HLOP

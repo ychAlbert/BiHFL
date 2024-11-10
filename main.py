@@ -5,6 +5,7 @@ from FLcore.servers.serverdyn import FedDyn
 from FLcore.servers.servermoon import MOON
 from FLcore.servers.serverprox import FedProx
 from FLcore.servers.serverscaffold import SCAFFOLD
+from FLcore.servers.serverhifa import HIFA
 
 
 def run(args):
@@ -161,6 +162,8 @@ def run(args):
         server = FedDyn(args, xtrain, ytrain, xtest, ytest, taskcla, model)
     elif args.fed_algorithm == 'MOON':
         server = MOON(args, xtrain, ytrain, xtest, ytest, taskcla, model)
+    elif args.fed_algorithm == 'HIFA':
+        server = HIFA(args, xtrain, ytrain, xtest, ytest, taskcla, model)
 
     server.execute()
 

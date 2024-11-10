@@ -3,3 +3,4 @@
 # @Description : servers软件包的__init__文件
 from .serverbase import Server
 from .serveravg import FedAvg
+from .serverhifa import HIFA

@@ -17,7 +17,6 @@ class FedDyn(Server):
     def __init__(self, args, xtrain, ytrain, xtest, ytest, taskcla, model):
         super().__init__(args, xtrain, ytrain, xtest, ytest, taskcla, model)
         self.set_clients(clientDyn, self.client_trainsets, model, taskcla)
-        self.time_cost = []
 
         self.alpha = args.FedDyn_alpha
         self.server_state = None
@@ -138,7 +137,6 @@ class FedDyn(Server):
 
             # 对于任务task_id，进行联邦训练
             for global_round in range(1, self.global_rounds + 1):
-                start_time = time.time()
                 # ①挑选合适客户端
                 self.select_clients(task_id)
                 # ②服务器向选中的客户端发放全局模型
@@ -151,11 +149,8 @@ class FedDyn(Server):
                 # ⑤服务器聚合全局模型
                 self.aggregate_parameters()
 
-                self.time_cost.append(time.time() - start_time)
-                print('-' * 25, 'Task', task_id, 'Time Cost', self.time_cost[-1], '-' * 25)
-
-                print(f"\n-------------Round number: {global_round}-------------")
-                print("\nEvaluate global model")
+                print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
+                print("\033[93mEvaluating\033[0m")
                 test_loss, test_acc = self.evaluate(task_id)
                 writer.add_scalar('test_loss', test_loss, global_round)
                 writer.add_scalar('test_acc', test_acc, global_round)

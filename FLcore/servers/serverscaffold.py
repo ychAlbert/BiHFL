@@ -22,7 +22,6 @@ class SCAFFOLD(Server):
         # 全局控制变量
         self.global_controls = []
         self.eta = args.SCAFFOLD_eta
-        self.time_cost = []
 
     def send_models(self):
         """
@@ -51,7 +50,7 @@ class SCAFFOLD(Server):
         for idx in self.received_info['client_ids']:
             delta_model, delta_control = self.clients[idx].delta_yc(task_id)
             for global_model_param, local_model_param in zip(global_model.parameters(), delta_model):
-                global_model_param.data += local_model_param.data.clone() / self.num_join_clients * self.eta
+                global_model_param.data += local_model_param.data.clone() / self.n_client * self.eta
             for global_control_param, local_control_param in zip(global_controls, delta_control):
                 global_control_param.data += local_control_param.data.clone() / self.n_client
         self.global_model = global_model
@@ -171,7 +170,6 @@ class SCAFFOLD(Server):
 
             # 对于任务task_id，进行联邦训练
             for global_round in range(1, self.global_rounds + 1):
-                start_time = time.time()
                 # ①挑选合适客户端
                 self.select_clients(task_id)
                 # ②服务器向选中的客户端发放全局模型
@@ -184,11 +182,8 @@ class SCAFFOLD(Server):
                 # ⑤服务器聚合全局模型
                 self.aggregate_parameters(task_id)
 
-                self.time_cost.append(time.time() - start_time)
-                print('-' * 25, 'Task', task_id, 'Time Cost', self.time_cost[-1], '-' * 25)
-
-                print(f"\n-------------Round number: {global_round}-------------")
-                print("\nEvaluate global model")
+                print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
+                print("\033[93mEvaluating\033[0m")
                 test_loss, test_acc = self.evaluate(task_id)
                 writer.add_scalar('test_loss', test_loss, global_round)
                 writer.add_scalar('test_acc', test_acc, global_round)

@@ -32,8 +32,7 @@ class Server(object):
         self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1])
                         for item in self.taskcla}
 
-        self.global_model = copy.deepcopy(model)
-        self.global_model.to(self.device)
+        self.global_model = copy.deepcopy(model).to(self.device)
 
         self.loss = nn.CrossEntropyLoss()
         self.batch_size = args.batch_size
@@ -57,8 +56,7 @@ class Server(object):
     # 生成现有的客户端
     def set_clients(self, clientObj, trainsets, model, taskcla):
         for i in range(self.n_client):
-            client = clientObj(args=self.args, id=i, trainset=trainsets[i], local_model=copy.deepcopy(model),
-                               taskcla=taskcla)
+            client = clientObj(args=self.args, id=i, trainset=trainsets[i], model=copy.deepcopy(model), taskcla=taskcla)
             self.clients.append(client)
 
     # ------------------------------------------------------------------------------------------------------------------

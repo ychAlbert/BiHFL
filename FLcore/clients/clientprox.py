@@ -14,8 +14,8 @@ from ..utils import accuracy, reset_net
 
 
 class clientProx(Client):
-    def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
-        super().__init__(args, id, trainset, local_model, taskcla, **kwargs)
+    def __init__(self, args, id, trainset, model, taskcla):
+        super().__init__(args, id, trainset, model, taskcla)
         self.mu = args.FedProx_mu
         self.global_model = None
 

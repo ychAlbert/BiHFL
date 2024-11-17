@@ -1,25 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Description : 联邦学习客户端的基础类
-import os
 import copy
 import math
+import os
 
 import torch
 import torch.nn as nn
 
 __all__ = ['Client']
 
-from torch.utils.data import DataLoader
-
 from FLcore.utils import GeneralDataset
 
 
 class Client(object):
-    def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
+    def __init__(self, args, id, trainset, model, taskcla):
         self.args = args
         self.id = id  # id标识
-        self.fed_algorithm = args.fed_algorithm  # 联邦算法
         self.device = args.device
         self.taskcla = taskcla
         self.local_tasks = [eval(task.replace("task ", "")) for task in trainset.keys()]
@@ -28,7 +25,7 @@ class Client(object):
         self.train_samples = len(self.trainset)
         self.replay_trainset = {f'task {item[0]}': None for item in self.taskcla}
 
-        self.local_model = copy.deepcopy(local_model)
+        self.local_model = copy.deepcopy(model).to(self.device)
         self.loss = nn.CrossEntropyLoss()
 
         self.local_epochs = args.local_epochs

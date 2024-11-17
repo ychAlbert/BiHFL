@@ -15,8 +15,8 @@ from ..utils import accuracy, reset_net, model_parameter_vector
 
 
 class clientDyn(Client):
-    def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
-        super().__init__(args, id, trainset, local_model, taskcla, **kwargs)
+    def __init__(self, args, id, trainset, model, taskcla):
+        super().__init__(args, id, trainset, model, taskcla)
         self.alpha = args.FedDyn_alpha
         self.global_model_vector = None
         self.old_grad = None

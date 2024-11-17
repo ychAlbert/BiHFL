@@ -64,7 +64,7 @@ parser.add_argument('--root_path', type=str, default='./logs', help='文件保�
 # 实验相关设置 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 parser.add_argument('--seed', type=int, default=2024, help='随机种子')
 parser.add_argument('--experiment_name', type=str, default="pmnist", help='实验名称')
-parser.add_argument('--fed_algorithm', type=str, default='FedAvg', help='使用的联邦算法')
+parser.add_argument('--fed_algorithm', type=str, default='SCAFFOLD', help='使用的联邦算法')
 parser.add_argument('--device', type=str, default="cuda", choices=["cpu", "cuda"], help="实验设备")
 
 parser.add_argument('--use_hlop', action='store_true', help='是否使用hlop')

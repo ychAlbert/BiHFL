@@ -17,17 +17,14 @@ __all__ = ['clientSCAFFOLD']
 
 
 class clientSCAFFOLD(Client):
-    def __init__(self, args, id, trainset, local_model, taskcla, **kwargs):
-        super().__init__(args, id, trainset, local_model, taskcla, **kwargs)
+    def __init__(self, args, id, trainset, model, taskcla):
+        super().__init__(args, id, trainset, model, taskcla)
         # 本地控制参数
         self.local_controls = None
         # 全局控制参数
         self.global_controls = None
         # 全局模型
         self.global_model = None
-
-        self.num_batches = None
-        self.max_local_epochs = None
 
     def set_parameters(self, global_model, global_controls):
         """
@@ -52,7 +49,7 @@ class clientSCAFFOLD(Client):
                                                                             self.global_model.parameters(),
                                                                             self.global_controls):
             local_control.data = local_control - global_control + (
-                    global_param - local_param) / num_batches / self.max_local_epochs / self.current_learning_rate
+                    global_param - local_param) / num_batches / self.local_epochs / self.current_learning_rate
 
     def delta_yc(self, task_id):
         """
@@ -65,7 +62,7 @@ class clientSCAFFOLD(Client):
         num_batches = np.ceil(len(trainset) // self.batch_size)
         for c, x, yi in zip(self.global_controls, self.global_model.parameters(), self.local_model.parameters()):
             delta_model.append(yi - x)
-            delta_control.append(- c + 1 / num_batches / self.max_local_epochs / self.current_learning_rate * (x - yi))
+            delta_control.append(- c + 1 / num_batches / self.local_epochs / self.current_learning_rate * (x - yi))
 
         return delta_model, delta_control
 

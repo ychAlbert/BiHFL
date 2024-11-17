@@ -16,8 +16,8 @@ from ..utils import accuracy, reset_net
 
 
 class clientMOON(Client):
-    def __init__(self, args, id, trainset, model, taskcla):
-        super().__init__(args, id, trainset, model, taskcla)
+    def __init__(self, args, id, trainset, taskcla, model):
+        super().__init__(args, id, trainset, taskcla, model)
         self.tau = args.MOON_tau
         self.mu = args.MOON_mu
         self.global_model = None

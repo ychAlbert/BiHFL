@@ -1,8 +1,13 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Description : 程序设置
+
 import argparse
 import os
 import time
 
 import torch
+import yaml
 
 parser = argparse.ArgumentParser()
 # HLOP—SNN 设置 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -73,8 +78,8 @@ parser.add_argument("--use_replay", action='store_true', help='是否使用重�
 parser.add_argument('--memory_size', type=int, default=50, help='重放的记忆大小')
 
 parser.add_argument('--device_id', type=str, default="0", help='实验设备的id')
-parser.add_argument('--n_client', type=int, default=3, help='本地的数量')
-parser.add_argument('--dirichlet_concentration', type=float, default=0.8, help='迪利克雷浓度')
+parser.add_argument('--dirichlet', action='store_true', help='使用迪利克雷浓度分配本地数据集')
+parser.add_argument('--emd', action='store_true', help='使用EMD距离分配本地数据集')
 # 实验相关设置 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 args = parser.parse_args()
@@ -84,6 +89,16 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+
+# 设置本地训练数据集信息和本地个数
+with open("client_dataset_config.yaml", 'r', encoding='utf-8') as f:
+    data = yaml.load(f, Loader = yaml.FullLoader)
+    if args.dirichlet:
+        args.dirichlet_concentration = data['dirichlet_concentration']
+        args.n_client = len(args.dirichlet_concentration)
+    elif args.emd:
+        args.emd_distance = data['emd_distance']
+        args.n_client = len(args.emd_distance)
 
 args.root_path = os.path.join('logs', args.experiment_name, args.fed_algorithm + time.strftime(" %Y-%m-%d %H：%M：%S"))
 os.environ["CUDA_VISIBLE_DEVICES"] = args.device_id
@@ -107,4 +122,8 @@ if args.use_replay:
     print('本地重放轮次: {}'.format(args.replay_global_rounds))
     print('重放记忆大小：{}'.format(args.memory_size))
 print('本地客户端数量： {}'.format(args.n_client))
+if args.dirichlet:
+    print('本地训练数据集分配方式： 迪利克雷浓度 {}'.format(args.dirichlet_concentration))
+elif args.emd:
+    print('本地训练数据集分配方式： EMD距离 {}'.format(args.emd_distance))
 print('=' * 50)

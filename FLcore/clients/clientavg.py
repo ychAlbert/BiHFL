@@ -14,8 +14,8 @@ __all__ = ['clientAVG']
 
 
 class clientAVG(Client):
-    def __init__(self, args, id, trainset, model, taskcla):
-        super().__init__(args, id, trainset, model, taskcla)
+    def __init__(self, args, id, trainset, taskcla, model):
+        super().__init__(args, id, trainset, taskcla, model)
 
     def set_parameters(self, model):
         """

@@ -1,4 +1,7 @@
-# 获取命令行参数解析对象
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Description : 程序入口
+
 from main_set import *
 from FLcore.servers.serveravg import FedAvg
 from FLcore.servers.serverdyn import FedDyn
@@ -152,17 +155,17 @@ def run(args):
     # ------------------------------------------------------------------------------------------------------------------
     # 获取联邦算法
     # ------------------------------------------------------------------------------------------------------------------
-    if args.fed_algorithm == 'FedAvg':
+    if args.fed_algorithm.lower() == 'fedavg':
         server = FedAvg(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'SCAFFOLD':
+    elif args.fed_algorithm.lower() == 'scaffold':
         server = SCAFFOLD(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'FedProx':
+    elif args.fed_algorithm.lower() == 'fedprox':
         server = FedProx(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'FedDyn':
+    elif args.fed_algorithm.lower() == 'feddyn':
         server = FedDyn(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'MOON':
+    elif args.fed_algorithm.lower() == 'moon':
         server = MOON(args, xtrain, ytrain, xtest, ytest, taskcla, model)
-    elif args.fed_algorithm == 'HIFA':
+    elif args.fed_algorithm.lower() == 'hifa':
         server = HIFA(args, xtrain, ytrain, xtest, ytest, taskcla, model)
 
     server.execute()

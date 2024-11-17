@@ -17,8 +17,8 @@ __all__ = ['clientSCAFFOLD']
 
 
 class clientSCAFFOLD(Client):
-    def __init__(self, args, id, trainset, model, taskcla):
-        super().__init__(args, id, trainset, model, taskcla)
+    def __init__(self, args, id, trainset, taskcla, model):
+        super().__init__(args, id, trainset, taskcla, model)
         # 本地控制参数
         self.local_controls = None
         # 全局控制参数

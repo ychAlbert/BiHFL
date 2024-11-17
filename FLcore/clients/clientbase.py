@@ -14,7 +14,7 @@ from FLcore.utils import GeneralDataset
 
 
 class Client(object):
-    def __init__(self, args, id, trainset, model, taskcla):
+    def __init__(self, args, id, trainset, taskcla, model):
         self.args = args
         self.id = id  # id标识
         self.device = args.device

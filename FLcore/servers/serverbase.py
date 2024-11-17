@@ -25,12 +25,13 @@ class Server(object):
 
         self.xtrain = xtrain
         self.ytrain = ytrain
-        self.client_trainsets = split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla)
+        if args.dirichlet:
+            self.trainsets = split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla)
+        self.n_client = args.n_client
 
         self.xtest = xtest
         self.ytest = ytest
-        self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1])
-                        for item in self.taskcla}
+        self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1]) for item in self.taskcla}
 
         self.global_model = copy.deepcopy(model).to(self.device)
 
@@ -40,11 +41,15 @@ class Server(object):
         self.replay_global_rounds = args.replay_global_rounds
         self.timesteps = args.timesteps
 
-        self.n_client = args.n_client
+        
         self.clients = []
         self.selected_clients = []
 
         self.received_info = {}
+
+        self.hlop_out_num = []
+        self.hlop_out_num_inc = []
+        self.hlop_out_num_inc1 = []
 
         self.root_path = os.path.join(args.root_path, 'Server')
         self.logs_path = os.path.join(self.root_path, 'logs')
@@ -54,9 +59,9 @@ class Server(object):
     # 设置相关客户端操作
     # ------------------------------------------------------------------------------------------------------------------
     # 生成现有的客户端
-    def set_clients(self, clientObj, trainsets, model, taskcla):
+    def set_clients(self, clientObj, trainsets, taskcla, model):
         for i in range(self.n_client):
-            client = clientObj(args=self.args, id=i, trainset=trainsets[i], model=copy.deepcopy(model), taskcla=taskcla)
+            client = clientObj(args=self.args, id=i, trainset=trainsets[i], taskcla=taskcla, model=copy.deepcopy(model))
             self.clients.append(client)
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -114,11 +119,8 @@ class Server(object):
         # --------------------------------------------------------------------------------------------------------------
         # 获取实验相关参数（是否是HLOP_SNN相关实验，如果是的话，是否是bptt/ottt相关设置）
         # --------------------------------------------------------------------------------------------------------------
-        bptt, ottt = False, False
-        if self.args.experiment_name.endswith('bptt'):
-            bptt = True
-        elif self.args.experiment_name.endswith('ottt'):
-            ottt = True
+        bptt = True if self.args.experiment_name.endswith('bptt') else False
+        ottt = True if self.args.experiment_name.endswith('ottt') else False
 
         # 全局模型开启评估模式
         self.global_model.eval()
@@ -197,6 +199,100 @@ class Server(object):
 
         print('Test Accuracy: {:.4f}    Test Loss: {:.4f}'.format(test_acc, test_loss))
         return test_loss, test_acc
+
+    def prepare(self):
+        # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）
+        bptt = True if self.args.experiment_name.endswith('bptt') else False
+        ottt = True if self.args.experiment_name.endswith('ottt') else False
+        if bptt or ottt:
+            self.args.use_replay = False
+
+        # 根据实验名获得hlop相关参数
+        if self.args.experiment_name.startswith('pmnist'):                  # pmnist/pmnist_bptt/pmnist_ottt 实验
+            self.hlop_out_num = [80, 200, 100]
+            self.hlop_out_num_inc = [70, 70, 70]
+        elif self.args.experiment_name == 'cifar':                          # cifar 实验
+            self.hlop_out_num = [6, 100, 200]
+            self.hlop_out_num_inc = [2, 20, 40]
+        elif self.args.experiment_name == 'miniimagenet':                   # miniimagenet 实验
+            self.hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20], [360, 360], [360, 720, 40], [720, 720]]
+            self.hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4], [48, 48]]
+            self.hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
+        elif self.args.experiment_name.startswith('fivedataset'):           # fivedataset/fivedataset_domain 实验
+            self.hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200], [200, 200, 16], [200, 200]]
+            self.hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200], [200, 200, 16], [200, 200]]
+
+    def add_subspace_and_classifier(self, n_task_class, task_count):
+        if self.args.experiment_name.startswith('pmnist'):                  # pmnist/pmnist_bptt/pmnist_ottt 实验
+            if task_count == 0:
+                self.global_model.add_hlop_subspace(self.hlop_out_num)
+                self.global_model.to(self.device)
+                for client in self.clients:
+                    client.local_model.add_hlop_subspace(self.hlop_out_num)
+                    client.local_model.to(self.device)
+            else:
+                if task_count % 3 == 0:
+                    self.hlop_out_num_inc[0] -= 20
+                    self.hlop_out_num_inc[1] -= 20
+                    self.hlop_out_num_inc[2] -= 20
+                self.global_model.add_hlop_subspace(self.hlop_out_num_inc)
+                for client in self.clients:
+                    client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
+        elif self.args.experiment_name == 'cifar':                          # cifar 实验
+            if task_count == 0:
+                self.global_model.add_hlop_subspace(self.hlop_out_num)
+                self.global_model.to(self.device)
+                for client in self.clients:
+                    client.local_model.add_hlop_subspace(self.hlop_out_num)
+                    client.local_model.to(self.device)
+            else:
+                self.global_model.add_classifier(n_task_class)
+                self.global_model.add_hlop_subspace(self.hlop_out_num_inc)
+                for client in self.clients:
+                    client.local_model.add_classifier(n_task_class)
+                    client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
+        elif self.args.experiment_name == 'miniimagenet':                   # miniimagenet 实验
+            if task_count == 0:
+                self.global_model.add_hlop_subspace(self.hlop_out_num)
+                self.global_model.to(self.device)
+                for client in self.clients:
+                    client.local_model.add_hlop_subspace(self.hlop_out_num)
+                    client.local_model.to(self.device)
+            else:
+                self.global_model.add_classifier(n_task_class)
+                for client in self.clients:
+                    client.local_model.add_classifier(n_task_class)
+                if task_count < 6:
+                    self.global_model.add_hlop_subspace(self.hlop_out_num_inc)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
+                else:
+                    self.global_model.add_hlop_subspace(self.hlop_out_num_inc1)
+                    for client in self.clients:
+                        client.local_model.add_hlop_subspace(self.hlop_out_num_inc1)
+        elif self.args.experiment_name.startswith('fivedataset'):           # fivedataset/fivedataset_domain 实验
+            if task_count == 0:
+                self.global_model.add_hlop_subspace(self.hlop_out_num)
+                self.global_model.to(self.device)
+                for client in self.clients:
+                    client.local_model.add_hlop_subspace(self.hlop_out_num)
+                    client.local_model.to(self.device)
+            else:
+                self.global_model.add_classifier(n_task_class)
+                self.global_model.add_hlop_subspace(self.hlop_out_num_inc)
+                for client in self.clients:
+                    client.local_model.add_classifier(n_task_class)
+                    client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
+
+
+    def merge_subspace(self):
+        self.global_model.to('cpu')
+        self.global_model.merge_hlop_subspace()
+        self.global_model.to(self.device)
+        for client in self.clients:
+            client.local_model.to('cpu')
+            client.local_model.merge_hlop_subspace()
+            client.local_model.to(self.device)
 
     # ------------------------------------------------------------------------------------------------------------------
     # 数据保存、加载操作

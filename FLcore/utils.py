@@ -37,7 +37,7 @@ def split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla):
         task_id, task_n_class = task[0], task[1]
 
         # partition[i][j] 是客户端j从类别i中获得的样本的百分比
-        partition = np.random.dirichlet([args.dirichlet_concentration] * n_client, size=task_n_class)
+        partition = np.random.dirichlet(args.dirichlet_concentration, size=task_n_class)
 
         labels_sorted = ytrain[task_id].sort()
         class_index_list = list(zip(labels_sorted.values.tolist(), labels_sorted.indices.tolist()))

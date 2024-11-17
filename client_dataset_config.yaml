@@ -4,4 +4,5 @@ dirichlet_concentration:
 - 0.8
 emd_distance:
 - 0.1
-- 0.3
+- 0.1
+- 0.1

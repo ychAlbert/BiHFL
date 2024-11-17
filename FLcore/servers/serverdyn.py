@@ -49,19 +49,13 @@ class FedDyn(Server):
                 client.set_optimizer(task_id, False)
                 client.set_learning_rate_scheduler(False)
 
-            # 对于任务task_id，进行联邦训练
             for global_round in range(1, self.global_rounds + 1):
-                # ①挑选合适客户端
-                self.select_clients(task_id)
-                # ②服务器向选中的客户端发放全局模型
-                self.send_models()
-                # ③选中的客户端进行训练
-                for client in self.selected_clients:
+                self.select_clients(task_id)                    # 挑选合适客户端
+                self.send_models()                              # 服务器向选中的客户端发放全局模型
+                for client in self.selected_clients:            # 选中的客户端进行训练
                     client.train(task_id)
-                # ④服务器接收训练后的客户端模型
-                self.receive_models()
-                # ⑤服务器聚合全局模型
-                self.aggregate_parameters()
+                self.receive_models()                           # 服务器接收训练后的客户端模型
+                self.aggregate_parameters()                     # 服务器聚合全局模型
 
                 print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
                 print("\033[93mEvaluating\033[0m")

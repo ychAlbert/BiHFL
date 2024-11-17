@@ -12,7 +12,8 @@ from progress.bar import Bar
 from torch import nn
 from torch.utils.data import DataLoader
 
-from FLcore.utils import AverageMeter, accuracy, reset_net, GeneralDataset, split_trainset_by_dirichlet
+from FLcore.utils import AverageMeter, accuracy, reset_net, GeneralDataset, split_trainset_by_dirichlet, \
+    split_trainset_by_emd
 
 __all__ = ['Server']
 
@@ -23,15 +24,18 @@ class Server(object):
         self.device = args.device
         self.taskcla = taskcla
 
+        self.n_client = args.n_client
         self.xtrain = xtrain
         self.ytrain = ytrain
         if args.dirichlet:
             self.trainsets = split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla)
-        self.n_client = args.n_client
+        elif args.emd:
+            self.trainsets = split_trainset_by_emd(args, xtrain, ytrain, taskcla)
 
         self.xtest = xtest
         self.ytest = ytest
-        self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1]) for item in self.taskcla}
+        self.testset = {f'task {item[0]}': GeneralDataset(data=xtest[item[0]], labels=ytest[item[0]], n_class=item[1])
+                        for item in self.taskcla}
 
         self.global_model = copy.deepcopy(model).to(self.device)
 
@@ -41,7 +45,6 @@ class Server(object):
         self.replay_global_rounds = args.replay_global_rounds
         self.timesteps = args.timesteps
 
-        
         self.clients = []
         self.selected_clients = []
 
@@ -208,22 +211,26 @@ class Server(object):
             self.args.use_replay = False
 
         # 根据实验名获得hlop相关参数
-        if self.args.experiment_name.startswith('pmnist'):                  # pmnist/pmnist_bptt/pmnist_ottt 实验
+        if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
             self.hlop_out_num = [80, 200, 100]
             self.hlop_out_num_inc = [70, 70, 70]
-        elif self.args.experiment_name == 'cifar':                          # cifar 实验
+        elif self.args.experiment_name == 'cifar':  # cifar 实验
             self.hlop_out_num = [6, 100, 200]
             self.hlop_out_num_inc = [2, 20, 40]
-        elif self.args.experiment_name == 'miniimagenet':                   # miniimagenet 实验
-            self.hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20], [360, 360], [360, 720, 40], [720, 720]]
-            self.hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4], [48, 48]]
+        elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
+            self.hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20], [360, 360],
+                                 [360, 720, 40], [720, 720]]
+            self.hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4],
+                                     [48, 48]]
             self.hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
-        elif self.args.experiment_name.startswith('fivedataset'):           # fivedataset/fivedataset_domain 实验
-            self.hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200], [200, 200, 16], [200, 200]]
-            self.hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200], [200, 200, 16], [200, 200]]
+        elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
+            self.hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
+                                 [200, 200, 16], [200, 200]]
+            self.hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
+                                     [200, 200, 16], [200, 200]]
 
     def add_subspace_and_classifier(self, n_task_class, task_count):
-        if self.args.experiment_name.startswith('pmnist'):                  # pmnist/pmnist_bptt/pmnist_ottt 实验
+        if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
             if task_count == 0:
                 self.global_model.add_hlop_subspace(self.hlop_out_num)
                 self.global_model.to(self.device)
@@ -238,7 +245,7 @@ class Server(object):
                 self.global_model.add_hlop_subspace(self.hlop_out_num_inc)
                 for client in self.clients:
                     client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
-        elif self.args.experiment_name == 'cifar':                          # cifar 实验
+        elif self.args.experiment_name == 'cifar':  # cifar 实验
             if task_count == 0:
                 self.global_model.add_hlop_subspace(self.hlop_out_num)
                 self.global_model.to(self.device)
@@ -251,7 +258,7 @@ class Server(object):
                 for client in self.clients:
                     client.local_model.add_classifier(n_task_class)
                     client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
-        elif self.args.experiment_name == 'miniimagenet':                   # miniimagenet 实验
+        elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
             if task_count == 0:
                 self.global_model.add_hlop_subspace(self.hlop_out_num)
                 self.global_model.to(self.device)
@@ -270,7 +277,7 @@ class Server(object):
                     self.global_model.add_hlop_subspace(self.hlop_out_num_inc1)
                     for client in self.clients:
                         client.local_model.add_hlop_subspace(self.hlop_out_num_inc1)
-        elif self.args.experiment_name.startswith('fivedataset'):           # fivedataset/fivedataset_domain 实验
+        elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
             if task_count == 0:
                 self.global_model.add_hlop_subspace(self.hlop_out_num)
                 self.global_model.to(self.device)
@@ -283,7 +290,6 @@ class Server(object):
                 for client in self.clients:
                     client.local_model.add_classifier(n_task_class)
                     client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
-
 
     def merge_subspace(self):
         self.global_model.to('cpu')

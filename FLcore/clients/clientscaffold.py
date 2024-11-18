@@ -34,22 +34,18 @@ class clientSCAFFOLD(Client):
         @return:
         """
         # 利用服务器接收到的全局模型更新本地模型
-        for gp, lp in zip(global_model.parameters(), self.local_model.parameters()):
-            lp.data = gp.data.clone()
+        for yi, x in zip(self.local_model.parameters(), global_model.parameters()):
+            yi.data = x.data.clone()
         # 获取全局的控制参数
         self.global_controls = copy.deepcopy(global_controls)
         # 获取全局的模型
         self.global_model = copy.deepcopy(global_model)
 
-    def update_yc(self, task_id):
-        trainset = self.trainset[f'task {task_id}']
-        num_batches = np.ceil(len(trainset) // self.batch_size)
-        for local_param, local_control, global_param, global_control in zip(self.local_model.parameters(),
-                                                                            self.local_controls,
-                                                                            self.global_model.parameters(),
-                                                                            self.global_controls):
-            local_control.data = local_control - global_control + (
-                    global_param - local_param) / num_batches / self.local_epochs / self.current_learning_rate
+    def update_c(self, task_id):
+        num_batches = np.ceil(len(self.trainset[f'task {task_id}']) / self.batch_size)
+        for yi, ci, x, c in zip(self.local_model.parameters(), self.local_controls,
+                                self.global_model.parameters(), self.global_controls):
+            ci.data = ci - c + 1 / (num_batches * self.local_epochs * self.cur_lr) * (x - yi)
 
     def delta_yc(self, task_id):
         """
@@ -58,11 +54,10 @@ class clientSCAFFOLD(Client):
         @return:
         """
         delta_model, delta_control = [], []
-        trainset = self.trainset[f'task {task_id}']
-        num_batches = np.ceil(len(trainset) // self.batch_size)
+        num_batches = np.ceil(len(self.trainset[f'task {task_id}']) / self.batch_size)
         for c, x, yi in zip(self.global_controls, self.global_model.parameters(), self.local_model.parameters()):
             delta_model.append(yi - x)
-            delta_control.append(- c + 1 / num_batches / self.local_epochs / self.current_learning_rate * (x - yi))
+            delta_control.append(- c + 1 / (num_batches * self.local_epochs * self.cur_lr) * (x - yi))
 
         return delta_model, delta_control
 
@@ -127,9 +122,12 @@ class clientSCAFFOLD(Client):
 
                         flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                         if task_id == 0:
-                            out_fr_, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag, init=init)
+                            out_fr_, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag,
+                                                               init=init)
                         else:
-                            out_fr_, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0], init=init)
+                            out_fr_, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop,
+                                                               proj_id_list=[0], update_hlop=flag,
+                                                               fix_subspace_id_list=[0], init=init)
 
                         if t == 0:
                             total_fr = out_fr.clone().detach()
@@ -142,12 +140,12 @@ class clientSCAFFOLD(Client):
                             self.optimizer.step()
                     if not self.args.online_update:
                         self.optimizer.step()
-                    for lp, gc, lc in zip(self.local_model.parameters(), self.global_controls, self.local_controls):
-                        if lp.grad is None:
-                            lp.data = lp.data - self.current_learning_rate * (gc.data.clone() - lc.data.clone())
+                    for yi, c, ci in zip(self.local_model.parameters(), self.global_controls, self.local_controls):
+                        if yi.grad is None:
+                            yi.data = yi.data - self.cur_lr * (c.data.clone() - ci.data.clone())
                         else:
-                            lp.data = lp.data - self.current_learning_rate * (
-                                    lp.grad.data + gc.data.clone() - lc.data.clone())
+                            yi.data = yi.data - self.cur_lr * (
+                                    yi.grad.data + c.data.clone() - ci.data.clone())
                     train_loss += total_loss.item() * label.numel()
                     out = total_fr
                 elif bptt:
@@ -157,17 +155,18 @@ class clientSCAFFOLD(Client):
                     if task_id == 0:
                         out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
                     else:
-                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0])
+                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
+                                                     update_hlop=flag, fix_subspace_id_list=[0])
                     loss = self.loss(out, label)
                     loss.backward()
                     self.optimizer.step()
 
-                    for lp, gc, lc in zip(self.local_model.parameters(), self.global_controls, self.local_controls):
-                        if lp.grad is None:
-                            lp.data = lp.data - self.current_learning_rate * (gc.data.clone() - lc.data.clone())
+                    for yi, c, ci in zip(self.local_model.parameters(), self.global_controls, self.local_controls):
+                        if yi.grad is None:
+                            yi.data = yi.data - self.cur_lr * (c.data.clone() - ci.data.clone())
                         else:
-                            lp.data = lp.data - self.current_learning_rate * (
-                                    lp.grad.data + gc.data.clone() - lc.data.clone())
+                            yi.data = yi.data - self.cur_lr * (
+                                    yi.grad.data + c.data.clone() - ci.data.clone())
                     reset_net(self.local_model)
                     train_loss += loss.item() * label.numel()
                 else:
@@ -179,17 +178,18 @@ class clientSCAFFOLD(Client):
                     if task_id == 0:
                         out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
                     else:
-                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0])
+                        out_, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
+                                                     update_hlop=flag, fix_subspace_id_list=[0])
                     loss = self.loss(out, label)
                     loss.backward()
-                    self.optimizer.step()
 
-                    for lp, gc, lc in zip(self.local_model.parameters(), self.global_controls, self.local_controls):
-                        if lp.grad is None:
-                            lp.data = lp.data - self.current_learning_rate * (gc.data.clone() - lc.data.clone())
+                    for yi, ci, c in zip(self.local_model.parameters(), self.local_controls, self.global_controls):
+                        if yi.grad is None:
+                            yi.data = yi.data - self.cur_lr * (c.data.clone() - ci.data.clone())
                         else:
-                            lp.data = lp.data - self.current_learning_rate * (lp.grad.data + gc.data.clone() - lc.data.clone())
+                            yi.data = yi.data - self.cur_lr * (yi.grad.data + c.data.clone() - ci.data.clone())
 
+                    self.optimizer.step()
                     train_loss += loss.item() * label.numel()
 
                 # measure accuracy and record loss
@@ -222,8 +222,8 @@ class clientSCAFFOLD(Client):
 
         train_loss /= n_traindata
         train_acc /= n_traindata
-        self.learning_rate_scheduler.step()
-        self.update_yc(task_id)
+        self.lr_scheduler.step()
+        self.update_c(task_id)
 
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
@@ -234,7 +234,8 @@ class clientSCAFFOLD(Client):
 
         for replay_task in tasks_learned:
             replay_trainset = self.replay_trainset[f'task {replay_task}']
-            replay_trainloader = DataLoader(replay_trainset, batch_size=self.replay_batch_size, shuffle=True, drop_last=False)
+            replay_trainloader = DataLoader(replay_trainset, batch_size=self.replay_batch_size, shuffle=True,
+                                            drop_last=False)
             n_replay_trainset = len(replay_trainset)
 
             batch_time = AverageMeter()
@@ -242,7 +243,8 @@ class clientSCAFFOLD(Client):
             top1 = AverageMeter()
             top5 = AverageMeter()
             end = time.time()
-            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, replay_task), max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
+            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, replay_task),
+                      max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
 
             n_replay_traindata = 0
             train_acc = 0
@@ -260,7 +262,6 @@ class clientSCAFFOLD(Client):
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
                     rep, out = self.local_model(data, replay_task, projection=False, update_hlop=False)
 
-
                     # 计算loss
                     loss = self.loss(out, label)
                     loss.backward()
@@ -268,9 +269,10 @@ class clientSCAFFOLD(Client):
 
                     for lp, gc, lc in zip(self.local_model.parameters(), self.global_controls, self.local_controls):
                         if lp.grad is None:
-                            lp.data = lp.data - self.current_learning_rate * (gc.data.clone() - lc.data.clone())
+                            lp.data = lp.data - self.cur_lr * (gc.data.clone() - lc.data.clone())
                         else:
-                            lp.data = lp.data - self.current_learning_rate * (lp.grad.data + gc.data.clone() - lc.data.clone())
+                            lp.data = lp.data - self.cur_lr * (
+                                        lp.grad.data + gc.data.clone() - lc.data.clone())
 
                     train_loss += loss.item() * label.numel()
 
@@ -297,4 +299,4 @@ class clientSCAFFOLD(Client):
                     )
                     bar.next()
             bar.finish()
-            self.learning_rate_scheduler.step()
+            self.lr_scheduler.step()

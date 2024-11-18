@@ -29,16 +29,27 @@ The codebase is structured as follows:
 
 ## Quick Start
 
+### Multi-Client Learning with Allocated Clients' Trainset 
+To allocate clients' trainset by dirichlet concentration, run the following command:
+```python
+python main.py --experiment_name pmnist --fed_algorithm FedAvg --dirichlet
+```
+To allocate clients' trainset by emd distance, run the following command:
+```python
+python main.py --experiment_name pmnist --fed_algorithm FedAvg --emd
+```
+The dirichlet concentration and emd distance of clients both defined in `client_dataset_config.yaml`.
+
 ### Multi-Client Learning with Replay and HLOP
 To perform multi-client learning using replay and HLOP, run the following command:
 ```python
-python main.py --experiment_name pmnist --fed_algorithm FedAvg --use_replay --use_hlop --n_client 3
+python main.py --experiment_name pmnist --fed_algorithm FedAvg --use_replay --use_hlop --dirichlet
 ```
 
 ### Multi-Client Learning without Replay and HLOP
 To perform multi-client learning without using replay and HLOP, run the following command:
 ```python
-python main.py --experiment_name pmnist --fed_algorithm FedAvg --num_clients 3
+python main.py --experiment_name pmnist --fed_algorithm FedAvg --dirichlet
 ```
 
 ## Using tensorboard to visualize the results

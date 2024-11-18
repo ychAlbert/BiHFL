@@ -192,7 +192,7 @@ class clientDyn(Client):
 
         train_loss /= n_traindata
         train_acc /= n_traindata
-        self.learning_rate_scheduler.step()
+        self.lr_scheduler.step()
 
         if self.global_model_vector is not None:
             v1 = model_parameter_vector(self.local_model).detach()
@@ -267,4 +267,4 @@ class clientDyn(Client):
                     )
                     bar.next()
             bar.finish()
-            self.learning_rate_scheduler.step()
+            self.lr_scheduler.step()

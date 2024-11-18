@@ -48,11 +48,11 @@ class SCAFFOLD(Server):
         global_controls = copy.deepcopy(self.global_controls)
         # 计算聚合后的全局模型和控制参数
         for idx in self.received_info['client_ids']:
-            delta_model, delta_control = self.clients[idx].delta_yc(task_id)
-            for global_model_param, local_model_param in zip(global_model.parameters(), delta_model):
-                global_model_param.data += local_model_param.data.clone() / self.n_client * self.eta
-            for global_control_param, local_control_param in zip(global_controls, delta_control):
-                global_control_param.data += local_control_param.data.clone() / self.n_client
+            delta_yi, delta_c = self.clients[idx].delta_yc(task_id)
+            for x, yi in zip(global_model.parameters(), delta_yi):
+                x.data += yi.data.clone() / self.n_client * self.eta
+            for c, ci in zip(global_controls, delta_c):
+                c.data += ci.data.clone() / self.n_client
         self.global_model = global_model
         self.global_controls = global_controls
 
@@ -74,6 +74,7 @@ class SCAFFOLD(Server):
 
             self.add_subspace_and_classifier(n_task_class, task_count)
 
+            # 设置全局控制参数
             self.global_controls = [torch.zeros_like(param) for param in self.global_model.parameters()]
 
             for client in self.clients:
@@ -116,7 +117,6 @@ class SCAFFOLD(Server):
                 for replay_global_round in range(1, self.replay_global_rounds + 1):
                     self.select_clients(task_id)
                     self.send_models()
-
                     for client in self.clients:
                         client.replay(task_learned)
                     self.receive_models()

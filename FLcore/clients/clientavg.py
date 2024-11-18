@@ -177,7 +177,7 @@ class clientAVG(Client):
         train_loss /= n_traindata
         train_acc /= n_traindata
 
-        self.learning_rate_scheduler.step()
+        self.lr_scheduler.step()
 
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
@@ -244,4 +244,4 @@ class clientAVG(Client):
                     )
                     bar.next()
             bar.finish()
-            self.learning_rate_scheduler.step()
+            self.lr_scheduler.step()

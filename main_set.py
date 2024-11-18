@@ -49,9 +49,9 @@ parser.add_argument('--replay_batch_size', type=int, default=64, help='重放批
 
 parser.add_argument('--opt', type=str, default='SGD', help='使用的优化器')
 parser.add_argument('--momentum', type=float, default=0.9, help='SGD的冲量')
-parser.add_argument('--learning_rate', type=float, default=0.01, help='本地学习率')
-parser.add_argument('--replay_learning_rate', type=float, default=0.001, help='本地重放学习率')
-parser.add_argument('--continual_learning_rate', type=float, default=0.01, help='持续任务的学习率')
+parser.add_argument('--lr', type=float, default=0.01, help='本地学习率')
+parser.add_argument('--replay_lr', type=float, default=0.001, help='本地重放学习率')
+parser.add_argument('--continual_lr', type=float, default=0.01, help='持续任务的学习率')
 
 parser.add_argument('--lr_scheduler', type=str, default='CosALR', help='学习率调度器')
 parser.add_argument('--warmup', type=int, default=5, help='学习率的warmup参数')

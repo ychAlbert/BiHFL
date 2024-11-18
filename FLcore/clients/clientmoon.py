@@ -206,7 +206,7 @@ class clientMOON(Client):
 
         train_loss /= n_traindata
         train_acc /= n_traindata
-        self.learning_rate_scheduler.step()
+        self.lr_scheduler.step()
         self.old_local_model = copy.deepcopy(self.local_model)
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
@@ -284,4 +284,4 @@ class clientMOON(Client):
                     )
                     bar.next()
             bar.finish()
-            self.learning_rate_scheduler.step()
+            self.lr_scheduler.step()

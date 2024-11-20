@@ -31,14 +31,8 @@ class clientProx(Client):
             lp.data = p.data.clone()
 
     def train(self, task_id):
-        # --------------------------------------------------------------------------------------------------------------
-        # 获取实验相关参数（是否是bptt/ottt相关设置）
-        # --------------------------------------------------------------------------------------------------------------
-        bptt, ottt = False, False
-        if self.args.experiment_name.endswith('bptt'):
-            bptt = True
-        elif self.args.experiment_name.endswith('ottt'):
-            ottt = True
+        bptt = True if self.args.experiment_name.endswith('bptt') else False        # 是否是bptt实验
+        ottt = True if self.args.experiment_name.endswith('ottt') else False        # 是否是ottt实验
 
         # --------------------------------------------------------------------------------------------------------------
         # 数据集相关内容

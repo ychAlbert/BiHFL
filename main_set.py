@@ -35,7 +35,7 @@ parser.add_argument('--FedDyn_alpha', type=float, default=1.0, help='FedDyn算�
 parser.add_argument('--FedProx_mu', type=float, default=0.1, help='FedProx算法的μ参数')
 parser.add_argument('--MOON_tau', type=float, default=1.0, help='MOON算法的τ参数')
 parser.add_argument('--MOON_mu', type=float, default=1.0, help='MOON算法的μ参数')
-parser.add_argument('--SCAFFOLD_eta', type=float, default=1.0, help='SCAFFOLD算法的η参数')
+parser.add_argument('--SCAFFOLD_glr', type=float, default=1.0, help='SCAFFOLD算法中的全局学习率')
 # 联邦算法相关参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 # 训练及重放相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

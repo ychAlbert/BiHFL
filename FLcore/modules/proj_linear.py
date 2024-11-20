@@ -3,11 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Function
 import numpy as np
+from copy import deepcopy
 import math
+
+class Replace(Function):
+    @staticmethod
+    def forward(ctx, x, x_r):
+        return x_r
+
+    @staticmethod
+    def backward(ctx, grad):
+        return (grad, grad)
 
 
 class LinearProjGradFunction(Function):
-
     @staticmethod
     def forward(ctx, input, orth_input, weight, bias=None):
         ctx.save_for_backward(orth_input, weight, bias)
@@ -30,7 +39,7 @@ class LinearProjGradFunction(Function):
         return grad_input, grad_orth_input, grad_weight, grad_bias
 
 
-# 用于反馈对齐或符号对称
+# for feedback alignment or sign symmetric
 class DecoupledLinearFunction(Function):
     @staticmethod
     def forward(ctx, input, weight, weight_back, bias=None):
@@ -54,7 +63,7 @@ class DecoupledLinearFunction(Function):
         return grad_input, grad_weight, grad_weight_back, grad_bias
 
 
-# 对于具有反馈对齐或符号对称的投影
+# for projection with feedback alignment or sign symmetric
 class DecoupledLinearProjGradFunction(Function):
     @staticmethod
     def forward(ctx, input, orth_input, weight, weight_back, bias=None):
@@ -217,3 +226,4 @@ class FALinear(nn.Linear):
     def forward(self, input, projection=False, proj_func=None):
         weight_back = self.weight_back
         return self._forward_decouple(input, self.weight, weight_back, self.bias)
+

@@ -124,8 +124,6 @@ class clientAVG(Client):
                     # ----------------------------------------------------------------------------------------------
                     # 清空参数梯度
                     self.optimizer.zero_grad()
-                    # 模型推理
-
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
                         out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)

@@ -1,12 +1,18 @@
 import torch
 import torch.nn as nn
-from ..modules.neuron_ottt import OnlineIFNode, OnlineLIFNode
-from ..modules import surrogate as surrogate
-from ..modules.proj_conv import Conv2dProj
-from ..modules.proj_linear import LinearProj, SSLinear, SSLinearProj, FALinear, FALinearProj
-from ..modules.hlop_module import HLOP
+import torch.nn.functional as F
+import math
+from FLcore.modules.neuron_ottt import OnlineIFNode, OnlineLIFNode
+import FLcore.modules.surrogate as surrogate
+from FLcore.modules.proj_conv import Conv2dProj, SSConv2dProj
+from FLcore.modules.proj_linear import LinearProj, SSLinear, SSLinearProj, FALinear, FALinearProj
+from FLcore.modules.hlop_module import HLOP
+import numpy as np
 
-__all__ = ['spiking_MLP_ottt']
+
+__all__ = [
+    'spiking_MLP_ottt'
+]
 
 
 class WrapedSNNOp(nn.Module):
@@ -136,7 +142,6 @@ class spiking_MLP(nn.Module):
             x = self.sn2(x_, output_type='spike_rate', **kwargs)
         else:
             x = self.sn2(x_, **kwargs)
-        temp = x
         if not self.share_classifier:
             assert task_id is not None
             x = self.classifiers[task_id](x, require_wrap=require_wrap)
@@ -153,7 +158,7 @@ class spiking_MLP(nn.Module):
             x = x_
 
         out = x
-        return temp, out
+        return out
 
     def add_classifier(self, num_classes):
         self.classifier_num += 1

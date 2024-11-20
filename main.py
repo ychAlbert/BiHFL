@@ -110,14 +110,15 @@ def run(args):
         snn_setting['alpha'] = args.alpha
         snn_setting['Vth_bound'] = args.Vth_bound
         snn_setting['rate_stat'] = True if args.rate_stat == 1 else False
+        
         hlop_with_wfr = True
         if args.not_hlop_with_wfr:
             hlop_with_wfr = False
-        model = spiking_resnet18(snn_setting, num_classes=n_class, nf=20,
-                                 ss=args.sign_symmetric, hlop_with_wfr=hlop_with_wfr, hlop_spiking=args.hlop_spiking,
-                                 hlop_spiking_scale=args.hlop_spiking_scale,
-                                 hlop_spiking_timesteps=args.hlop_spiking_timesteps,
-                                 proj_type=args.hlop_proj_type, first_conv_stride2=True)
+        
+        model = spiking_resnet18(snn_setting, num_classes=n_class, nf=20, ss=args.sign_symmetric, 
+                                 hlop_with_wfr=hlop_with_wfr, hlop_spiking=args.hlop_spiking, 
+                                 hlop_spiking_scale=args.hlop_spiking_scale, 
+                                 hlop_spiking_timesteps=args.hlop_spiking_timesteps, proj_type=args.hlop_proj_type)
     # fivedataset/fivedataset_domain 实验
     elif args.experiment_name.startswith('fivedataset'):
         from FLcore.dataloader import five_datasets as data_loader

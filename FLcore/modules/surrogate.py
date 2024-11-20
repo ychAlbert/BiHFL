@@ -2,11 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
 tab4_str = '\t\t\t\t'  # used for aligning code
 curly_bracket_l = '{'
 curly_bracket_r = '}'
-
 
 def heaviside(x: torch.Tensor):
     '''
@@ -47,7 +45,6 @@ def heaviside(x: torch.Tensor):
     '''
     return (x >= 0).to(x)
 
-
 def check_manual_grad(primitive_function, spiking_function, eps=1e-5):
     '''
     :param primitive_function: 梯度替代函数的原函数
@@ -77,7 +74,6 @@ def check_manual_grad(primitive_function, spiking_function, eps=1e-5):
     x_grad_manual = x.grad.clone()
     assert (x_grad_manual - x_grad_auto).abs().max().item() <= eps, 'x.grad is wrong!'
     print('grad check pass')
-
 
 class SurrogateFunctionBase(nn.Module):
     def __init__(self, alpha, spiking=True):
@@ -251,7 +247,6 @@ class PiecewiseQuadratic(SurrogateFunctionBase):
     # plt.ylabel('Output')
     # plt.grid(linestyle='--')
     # plt.show()
-
 
 class piecewise_exp(torch.autograd.Function):
     @staticmethod
@@ -431,6 +426,7 @@ class Sigmoid(SurrogateFunctionBase):
         '''
         super().__init__(alpha, spiking)
 
+
     @staticmethod
     def spiking_function(x, alpha):
         return sigmoid.apply(x, alpha)
@@ -602,7 +598,6 @@ class atan(torch.autograd.Function):
 
         return grad_x, None
 
-
 class ATan(SurrogateFunctionBase):
     def __init__(self, alpha=2.0, spiking=True):
         '''
@@ -639,6 +634,7 @@ class ATan(SurrogateFunctionBase):
             :width: 100%
         '''
         super().__init__(alpha, spiking)
+
 
     @staticmethod
     def spiking_function(x, alpha):
@@ -708,6 +704,7 @@ class nonzero_sign_log_abs(torch.autograd.Function):
         grad_x = None
         if ctx.needs_input_grad[0]:
             grad_x = grad_output / (1 / ctx.alpha + ctx.saved_tensors[0].abs())
+
 
         return grad_x, None
 
@@ -789,6 +786,7 @@ class NonzeroSignLogAbs(SurrogateFunctionBase):
         '''
         super().__init__(alpha, spiking)
 
+
     @staticmethod
     def spiking_function(x, alpha):
         return nonzero_sign_log_abs.apply(x, alpha)
@@ -834,8 +832,7 @@ class erf(torch.autograd.Function):
     def backward(ctx, grad_output):
         grad_x = None
         if ctx.needs_input_grad[0]:
-            grad_x = grad_output * (- (ctx.saved_tensors[0] * ctx.alpha).pow_(2)).exp_() * (
-                        ctx.alpha / math.sqrt(math.pi))
+            grad_x = grad_output * (- (ctx.saved_tensors[0] * ctx.alpha).pow_(2)).exp_() * (ctx.alpha / math.sqrt(math.pi))
 
         return grad_x, None
 
@@ -901,6 +898,7 @@ class Erf(SurrogateFunctionBase):
         The function is used in [#esser2015backpropagation]_ [#STBP]_ [#SRNN]_.
         '''
         super().__init__(alpha, spiking)
+
 
     @staticmethod
     def spiking_function(x, alpha):
@@ -1047,7 +1045,7 @@ class PiecewiseLeakyReLU(MultiArgsSurrogateFunctionBase):
         else:
             cw = c * w
             return mask0 * (c * x + cw) + mask1 * (c * x + (- cw + 1)) \
-                + mask2 * (x / (2 * w) + 1 / 2)
+                   + mask2 * (x / (2 * w) + 1 / 2)
 
     def cuda_code(self, x: str, y: str, dtype='fp32'):
         sg_name = 'sg_' + self._get_name()
@@ -1224,6 +1222,7 @@ class SquarewaveFourierSeries(MultiArgsSurrogateFunctionBase):
     # plt.savefig('./docs/source/_static/API/clock_driven/surrogate/SquarewaveFourierSeries2.svg')
 
 
+
 class quasi_clamp(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, vth):
@@ -1241,7 +1240,6 @@ class quasi_clamp(torch.autograd.Function):
             mask_ = mask1.logical_not()
             grad_x = grad_output * x.masked_fill(mask_, 1.).masked_fill(mask1, 0.)
         return grad_x, None
-
 
 class QuasiClamp(SurrogateFunctionBase):
     def __init__(self, alpha=1.0, spiking=True):

@@ -9,7 +9,6 @@ from typing import Optional, Union
 
 from torch.types import _int, _size
 
-
 def reset_net(net: nn.Module):
     '''
     * :ref:`API in English <reset_net-en>`
@@ -36,7 +35,6 @@ def reset_net(net: nn.Module):
         if hasattr(m, 'reset'):
             m.reset()
 
-
 def spike_cluster(v: Tensor, v_threshold, T_in: int):
     '''
     * :ref:`API in English <spike_cluster-en>`
@@ -48,12 +46,12 @@ def spike_cluster(v: Tensor, v_threshold, T_in: int):
     :type v_threshold: float or tensor
     :param T_in: 脉冲聚类的距离阈值。一个脉冲聚类满足，内部任意2个相邻脉冲的距离不大于\ ``T_in``，而其内部任一脉冲与外部的脉冲距离大于\ ``T_in``。
     :return: 一个元组，包含
-
+    
         - **N_o** -- shape=[N]，N个神经元的输出脉冲的脉冲聚类的数量
 
         - **k_positive** -- shape=[N]，bool类型的tensor，索引。需要注意的是，k_positive可能是一个全False的tensor
 
-        - **k_negative** -- shape=[N]，bool类型的tensor，索引。需要注意的是，k_negative可能是一个全False的tensor
+        - **k_negative** -- shape=[N]，bool类型的tensor，索引。需要注意的是，k_negative可能是一个全False的tensor 
     :rtype: (Tensor, Tensor, Tensor)
 
     `STCA: Spatio-Temporal Credit Assignment with Delayed Feedback in Deep Spiking Neural Networks <https://www.ijcai.org/Proceedings/2019/0189.pdf>`_\ 一文提出的脉冲聚类方法。如果想使用该文中定义的损失，可以参考如下代码：
@@ -73,9 +71,9 @@ def spike_cluster(v: Tensor, v_threshold, T_in: int):
     :param v: shape=[T, N], membrane potentials of N neurons when t=[0, 1, ..., T-1]
     :param v_threshold: Threshold voltage(s) of the neurons, float or tensor of the shape=[N]
     :type v_threshold: float or tensor
-    :param T_in: Distance threshold of the spike clusters. A spike cluster satisfies that the distance of any two adjacent spikes within cluster is NOT greater than ``T_in`` and the distance between any internal and any external spike of cluster is greater than ``T_in``.
+    :param T_in: Distance threshold of the spike clusters. A spike cluster satisfies that the distance of any two adjacent spikes within cluster is NOT greater than ``T_in`` and the distance between any internal and any external spike of cluster is greater than ``T_in``. 
     :return: A tuple containing
-
+    
         - **N_o** -- shape=[N], numbers of spike clusters of N neurons' output spikes
 
         - **k_positive** -- shape=[N], tensor of type BoolTensor, indexes. Note that k_positive can be a tensor filled with False
@@ -113,6 +111,8 @@ def spike_cluster(v: Tensor, v_threshold, T_in: int):
             mask0 = (delta_t > T_in)  # 在t时刻释放脉冲，且距离上次释放脉冲的时间高于T_in的神经元
             mask1 = torch.logical_and(delta_t <= T_in, spike[t].bool())  # t时刻释放脉冲，但距离上次释放脉冲的时间不超过T_in的神经元
 
+
+
             temp_mask = torch.logical_and(mask0, min_spikes_num > spikes_num)
             min_spikes_num_t[temp_mask] = last_spike_t[temp_mask]
             min_spikes_num[temp_mask] = spikes_num[temp_mask]
@@ -121,6 +121,9 @@ def spike_cluster(v: Tensor, v_threshold, T_in: int):
             N_o[mask0] += 1
             spikes_num[mask1] += 1
             last_spike_t[spike[t].bool()] = t
+
+
+
 
         mask = (spikes_num < min_spikes_num)
         min_spikes_num[mask] = spikes_num[mask]
@@ -156,6 +159,7 @@ def spike_cluster(v: Tensor, v_threshold, T_in: int):
 
             next_spike_t[spike[t].bool()] = t
 
+
         k_positive = v_.argmax(dim=0)
         k_negative = min_spikes_num_t.long()
         arrange = torch.arange(0, T, device=v.device).unsqueeze(1).repeat(1, v.shape[1])
@@ -181,8 +185,7 @@ def spike_cluster(v: Tensor, v_threshold, T_in: int):
 
         return N_o, k_positive, k_negative
 
-
-def spike_similar_loss(spikes: Tensor, labels: Tensor, kernel_type='linear', loss_type='mse', *args):
+def spike_similar_loss(spikes:Tensor, labels:Tensor, kernel_type='linear', loss_type='mse', *args):
     '''
     * :ref:`API in English <spike_similar_loss-en>`
 
@@ -273,6 +276,7 @@ def spike_similar_loss(spikes: Tensor, labels: Tensor, kernel_type='linear', los
         spikes_len = spikes.norm(p=2, dim=1, keepdim=True)
         sim_p = sim_p / ((spikes_len.mm(spikes_len.t())) + 1e-8)
 
+
     labels = labels.float()
     sim = labels.mm(labels.t()).clamp_max(1)  # labels.mm(labels.t())[i][j]位置的元素表现输入数据i和数据数据j有多少个相同的标签
     # 将大于1的元素设置为1，因为共享至少同一个标签，就认为他们相似
@@ -286,13 +290,13 @@ def spike_similar_loss(spikes: Tensor, labels: Tensor, kernel_type='linear', los
     else:
         raise NotImplementedError
 
+def kernel_dot_product(x:Tensor, y:Tensor, kernel='linear', *args):
 
-def kernel_dot_product(x: Tensor, y: Tensor, kernel='linear', *args):
     '''
     * :ref:`API in English <kernel_dot_product-en>`
 
     .. _kernel_dot_product-cn:
-
+    
     :param x: shape=[N, M]的tensor，看作是N个M维向量
     :param y: shape=[N, M]的tensor，看作是N个M维向量
     :param str kernel: 计算内积时所使用的核函数
@@ -319,7 +323,7 @@ def kernel_dot_product(x: Tensor, y: Tensor, kernel='linear', *args):
     :param args: Extra parameters for inner product
     :return: ret, Tensor of shape=[N, N], ``ret[i][j]`` is inner product of ``x[i]`` and ``y[j]``.
 
-    Calculate inner product of ``x`` and ``y`` in kernel space. These 2 M-dim tensors are denoted by :math:`\\boldsymbol{x_{i}}` and :math:`\\boldsymbol{y_{j}}`. ``kernel`` determine the kind of inner product:
+    Calculate inner product of ``x`` and ``y`` in kernel space. These 2 M-dim tensors are denoted by :math:`\\boldsymbol{x_{i}}` and :math:`\\boldsymbol{y_{j}}`. ``kernel`` determine the kind of inner product: 
 
     - 'linear' -- Linear kernel, :math:`\\kappa(\\boldsymbol{x_{i}}, \\boldsymbol{y_{j}}) = \\boldsymbol{x_{i}}^{T}\\boldsymbol{y_{j}}`.
 
@@ -350,8 +354,7 @@ def kernel_dot_product(x: Tensor, y: Tensor, kernel='linear', *args):
     else:
         raise NotImplementedError
 
-
-def set_threshold_margin(output_layer: neuron.BaseNode, label_one_hot: Tensor,
+def set_threshold_margin(output_layer:neuron.BaseNode, label_one_hot:Tensor,
                          eval_threshold=1.0, threshold0=0.9, threshold1=1.1):
     '''
     * :ref:`API in English <set_threshold_margin-en>`
@@ -384,7 +387,7 @@ def set_threshold_margin(output_layer: neuron.BaseNode, label_one_hot: Tensor,
     Set voltage threshold margin for neurons in the output layer to reach better performance in classification task.
 
     When there are C different classes, the output layer contains C neurons. During training, when the input with groundtruth label i are sent into the network, the voltage threshold of the i-th neurons in the output layer will be set to ``threshold1`` and the remaining will be set to ``threshold0``.
-
+    
     During inference, the voltage thresholds of **ALL** neurons in the output layer will be set to ``eval_threshold``.
     '''
     if output_layer.training:
@@ -393,8 +396,7 @@ def set_threshold_margin(output_layer: neuron.BaseNode, label_one_hot: Tensor,
     else:
         output_layer.v_threshold = eval_threshold
 
-
-def redundant_one_hot(labels: Tensor, num_classes: int, n: int):
+def redundant_one_hot(labels:Tensor, num_classes:int, n:int):
     '''
     * :ref:`API in English <redundant_one_hot-en>`
 
@@ -427,7 +429,7 @@ def redundant_one_hot(labels: Tensor, num_classes: int, n: int):
 
     .. _redundant_one_hot-en:
 
-    :param labels: Tensor of shape=[batch_size], ``batch_size`` labels
+    :param labels: Tensor of shape=[batch_size], ``batch_size`` labels 
     :param int num_classes: The total number of classes.
     :param int n: The encoding length for each class.
     :return: Tensor of shape=[batch_size, num_classes * n]
@@ -455,7 +457,6 @@ def redundant_one_hot(labels: Tensor, num_classes: int, n: int):
     for i in range(n):
         codes += F.one_hot(labels * n + i, redundant_classes)
     return codes
-
 
 def first_spike_index(spikes: Tensor):
     '''
@@ -526,7 +527,6 @@ def first_spike_index(spikes: Tensor):
         # 在时间维度上，2次cumsum后，元素为1的位置，即为首次发放脉冲的位置
         return spikes.cumsum(dim=-1).cumsum(dim=-1) == 1
 
-
 def multi_step_forward(x_seq: Tensor, multi_step_module: nn.Module or list or tuple):
     """
     :param x_seq: shape=[T, batch_size, ...]
@@ -554,7 +554,6 @@ def multi_step_forward(x_seq: Tensor, multi_step_module: nn.Module or list or tu
         y_seq[t] = y_seq[t].unsqueeze(0)
     return torch.cat(y_seq, 0)
 
-
 def seq_to_ann_forward(x_seq: Tensor, stateless_module: nn.Module or list or tuple):
     """
     :param x_seq: shape=[T, batch_size, ...]
@@ -576,7 +575,6 @@ def seq_to_ann_forward(x_seq: Tensor, stateless_module: nn.Module or list or tup
     y_shape.extend(y.shape[1:])
     return y.view(y_shape)
 
-
 def fused_conv2d_weight_of_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d):
     """
     :param conv2d: a Conv2d layer
@@ -597,7 +595,7 @@ def fused_conv2d_weight_of_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d):
     """
     assert conv2d.bias is None
     return (conv2d.weight.transpose(0, 3) * bn2d.weight / (
-            bn2d.running_var + bn2d.eps).sqrt()).transpose(0, 3)
+                    bn2d.running_var + bn2d.eps).sqrt()).transpose(0, 3)
 
 
 def fused_conv2d_bias_of_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d):
@@ -644,7 +642,7 @@ def scale_fused_conv2d_weight_of_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2
         conv2d.weight.data *= k
     if b is not None:
         conv2d.weight.data += b
-
+        
 
 @torch.no_grad()
 def scale_fused_conv2d_bias_of_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d, k=None, b=None):
@@ -670,7 +668,6 @@ def scale_fused_conv2d_bias_of_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d,
     if b is not None:
         bn2d.bias.data += b
 
-
 @torch.no_grad()
 def fuse_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d, k=None, b=None):
     """
@@ -690,14 +687,13 @@ def fuse_convbn2d(conv2d: nn.Conv2d, bn2d: nn.BatchNorm2d, k=None, b=None):
         We assert `conv2d.bias` is `None`. See `Disable bias for convolutions directly followed by a batch norm <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#disable-bias-for-convolutions-directly-followed-by-a-batch-norm>`_ for more details.
     """
     fused_conv = nn.Conv2d(in_channels=conv2d.in_channels, out_channels=conv2d.out_channels,
-                           kernel_size=conv2d.kernel_size,
-                           stride=conv2d.stride, padding=conv2d.padding, dilation=conv2d.dilation,
-                           groups=conv2d.groups, bias=True,
-                           padding_mode=conv2d.padding_mode)
+                     kernel_size=conv2d.kernel_size,
+                     stride=conv2d.stride, padding=conv2d.padding, dilation=conv2d.dilation,
+                     groups=conv2d.groups, bias=True,
+                     padding_mode=conv2d.padding_mode)
     fused_conv.weight.data = fused_conv2d_weight_of_convbn2d(conv2d, bn2d)
     fused_conv.bias.data = fused_conv2d_bias_of_convbn2d(conv2d, bn2d)
     return fused_conv
-
 
 def temporal_efficient_training_cross_entropy(x_seq: Tensor, target: torch.LongTensor):
     """
@@ -750,7 +746,6 @@ def temporal_efficient_training_cross_entropy(x_seq: Tensor, target: torch.LongT
     loss = F.cross_entropy(x_seq, target)
     return loss
 
-
 def kaiming_normal_conv_linear_weight(net: nn.Module):
     '''
     * :ref:`API in English <kaiming_normal_conv_linear_weight-en>`
@@ -777,7 +772,6 @@ def kaiming_normal_conv_linear_weight(net: nn.Module):
     for m in net.modules():
         if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
             nn.init.kaiming_normal_(m.weight, a=math.sqrt(5))
-
 
 def spike_linear(spike: Tensor, weight: Tensor, bias: Optional[Tensor] = None) -> Tensor:
     """
@@ -816,9 +810,7 @@ def spike_linear(spike: Tensor, weight: Tensor, bias: Optional[Tensor] = None) -
     else:
         return spike_op.spike_linear.apply(spike, weight, bias)
 
-
-def spike_conv1d(spike: Tensor, weight: Tensor, bias: Tensor = None, stride: Union[_int, _size] = 1,
-                 padding: str = "valid", dilation: Union[_int, _size] = 1, groups: _int = 1) -> Tensor:
+def spike_conv1d(spike: Tensor, weight: Tensor, bias: Tensor=None, stride: Union[_int, _size]=1, padding: str="valid", dilation: Union[_int, _size]=1, groups: _int=1) -> Tensor:
     """
     * :ref:`API in English <spike_conv1d-en>`
 
@@ -855,9 +847,7 @@ def spike_conv1d(spike: Tensor, weight: Tensor, bias: Tensor = None, stride: Uni
     else:
         return spike_op.spike_convolution.apply(spike, weight, bias, stride, padding, dilation, groups)
 
-
-def spike_conv2d(spike: Tensor, weight: Tensor, bias: Optional[Tensor] = None, stride: Union[_int, _size] = 1,
-                 padding: str = "valid", dilation: Union[_int, _size] = 1, groups: _int = 1) -> Tensor:
+def spike_conv2d(spike: Tensor, weight: Tensor, bias: Optional[Tensor]=None, stride: Union[_int, _size]=1, padding: str="valid", dilation: Union[_int, _size]=1, groups: _int=1) -> Tensor:
     """
     * :ref:`API in English <spike_conv2d-en>`
 
@@ -894,9 +884,7 @@ def spike_conv2d(spike: Tensor, weight: Tensor, bias: Optional[Tensor] = None, s
     else:
         return spike_op.spike_convolution.apply(spike, weight, bias, stride, padding, dilation, groups)
 
-
-def spike_conv3d(spike: Tensor, weight: Tensor, bias: Optional[Tensor] = None, stride: Union[_int, _size] = 1,
-                 padding: str = "valid", dilation: Union[_int, _size] = 1, groups: _int = 1) -> Tensor:
+def spike_conv3d(spike: Tensor, weight: Tensor, bias: Optional[Tensor]=None, stride: Union[_int, _size]=1, padding: str="valid", dilation: Union[_int, _size]=1, groups: _int=1) -> Tensor:
     """
     * :ref:`API in English <spike_conv3d-en>`
 

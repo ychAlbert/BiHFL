@@ -1,16 +1,22 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..modules.neuron_dsr import LIFNeuron, IFNeuron
-from ..modules.neuron_dsr import rate_spikes, weight_rate_spikes
-from ..modules.proj_conv import Conv2dProj, SSConv2dProj
+import torch.nn.init as init
+from torch.autograd import Variable
+from FLcore.modules.neuron_dsr import LIFNeuron, IFNeuron
+from FLcore.modules.neuron_dsr import rate_spikes, weight_rate_spikes
+from FLcore.modules.proj_conv import Conv2dProj, SSConv2dProj
 from FLcore.modules.proj_linear import LinearProj, SSLinear, SSLinearProj
-from ..modules.hlop_module import HLOP
+from FLcore.modules.hlop_module import HLOP
 
-__all__ = ['spiking_cnn']
+__all__ = [
+    'spiking_cnn',
+]
 
 
-cfg = {'A': [64, 'M', 128, 'M', 256, 'M']}
+cfg = {
+    'A': [64, 'M', 128, 'M', 256, 'M'],
+}
 
 
 class CNN(nn.Module):
@@ -27,7 +33,8 @@ class CNN(nn.Module):
         self.hlop_spiking = hlop_spiking
         self.hlop_spiking_scale = hlop_spiking_scale
         self.hlop_spiking_timesteps = hlop_spiking_timesteps
-
+        # choice for projection type in bottom implementation
+        # it is theoretically equivalent for input and weight, while weight enables acceleration of convolutional operations
         self.proj_type = proj_type
 
         self.init_channels = 3
@@ -139,7 +146,7 @@ class CNN(nn.Module):
             out = weight_rate_spikes(out, self.timesteps, self.tau, self.delta_t)
         else:
             out = rate_spikes(out, self.timesteps)
-        return inputs.view(inputs.size(0), -1), out
+        return out
 
     def forward_features(self, x):
         inputs = torch.cat([x[:,_,:,:,:] for _ in range(self.timesteps)], 0)

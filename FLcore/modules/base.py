@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import copy
 
-
 class MemoryModule(nn.Module):
     def __init__(self):
         """
@@ -160,3 +159,4 @@ class MemoryModule(nn.Module):
         replica = super()._replicate_for_data_parallel()
         replica._memories = self._memories.copy()
         return replica
+

@@ -1,18 +1,22 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import math
+from FLcore.modules.neuron_dsr import LIFNeuron, IFNeuron
+from FLcore.modules.neuron_dsr import rate_spikes, weight_rate_spikes
+from FLcore.modules.proj_conv import Conv2dProj, SSConv2dProj
+from FLcore.modules.proj_linear import LinearProj, SSLinear, SSLinearProj, FALinear, FALinearProj
+from FLcore.modules.hlop_module import HLOP
+import numpy as np
 
-from ..modules.neuron_dsr import LIFNeuron, IFNeuron
-from ..modules.neuron_dsr import rate_spikes, weight_rate_spikes
-from ..modules.proj_linear import LinearProj, SSLinear, SSLinearProj, FALinear, FALinearProj
-from ..modules.hlop_module import HLOP
 
-__all__ = ['spiking_MLP']
+__all__ = [
+    'spiking_MLP'
+]
 
 
 class spiking_MLP(nn.Module):
-    def __init__(self, snn_setting, num_classes=10, n_hidden=800, share_classifier=True, neuron_type='lif', ss=False,
-                 fa=False, hlop_with_wfr=True, hlop_spiking=False, hlop_spiking_scale=20.,
-                 hlop_spiking_timesteps=1000.):
+    def __init__(self, snn_setting, num_classes=10, n_hidden=800, share_classifier=True, neuron_type='lif', ss=False, fa=False, hlop_with_wfr=True, hlop_spiking=False, hlop_spiking_scale=20., hlop_spiking_timesteps=1000.):
         super(spiking_MLP, self).__init__()
         self.timesteps = snn_setting['timesteps']
         self.snn_setting = snn_setting
@@ -56,15 +60,10 @@ class spiking_MLP(nn.Module):
         else:
             raise NotImplementedError('Please use IF or LIF model.')
 
-        self.hlop_modules.append(HLOP(784, lr=0.001, spiking=self.hlop_spiking, spiking_scale=self.hlop_spiking_scale,
-                                      spiking_timesteps=self.hlop_spiking_timesteps))
-        self.hlop_modules.append(
-            HLOP(n_hidden, lr=0.01, spiking=self.hlop_spiking, spiking_scale=self.hlop_spiking_scale,
-                 spiking_timesteps=self.hlop_spiking_timesteps))
+        self.hlop_modules.append(HLOP(784, lr=0.001, spiking=self.hlop_spiking, spiking_scale=self.hlop_spiking_scale, spiking_timesteps=self.hlop_spiking_timesteps))
+        self.hlop_modules.append(HLOP(n_hidden, lr=0.01, spiking=self.hlop_spiking, spiking_scale=self.hlop_spiking_scale, spiking_timesteps=self.hlop_spiking_timesteps))
         if share_classifier:
-            self.hlop_modules.append(
-                HLOP(n_hidden, lr=0.01, spiking=self.hlop_spiking, spiking_scale=self.hlop_spiking_scale,
-                     spiking_timesteps=self.hlop_spiking_timesteps))
+            self.hlop_modules.append(HLOP(n_hidden, lr=0.01, spiking=self.hlop_spiking, spiking_scale=self.hlop_spiking_scale, spiking_timesteps=self.hlop_spiking_timesteps))
             if ss:
                 self.classifiers = nn.ModuleList([SSLinearProj(n_hidden, num_classes, bias=False)])
             elif fa:
@@ -86,9 +85,8 @@ class spiking_MLP(nn.Module):
     def get_hlop_value(self, index=0, **kwargs):
         return self.hlop_modules[index].get_weight_value(**kwargs)
 
-    def forward(self, x, task_id=None, projection=False, proj_id_list=[0], update_hlop=False,
-                fix_subspace_id_list=None):
-        x = torch.cat([x[:, _, :, :, :] for _ in range(self.timesteps)], 0)
+    def forward(self, x, task_id=None, projection=False, proj_id_list=[0], update_hlop=False, fix_subspace_id_list=None):
+        x = torch.cat([x[:,_,:,:,:] for _ in range(self.timesteps)], 0)
         x = x.view(-1, 784)
         if projection:
             proj_func = self.hlop_modules[0].get_proj_func(subspace_id_list=proj_id_list)
@@ -114,7 +112,6 @@ class spiking_MLP(nn.Module):
             with torch.no_grad():
                 self.hlop_modules[1].forward_with_update(x, fix_subspace_id_list=fix_subspace_id_list)
         x = self.sn2(x_)
-        temp = x
         if not self.share_classifier:
             assert task_id is not None
             x = self.classifiers[task_id](x)
@@ -138,10 +135,10 @@ class spiking_MLP(nn.Module):
             out = weight_rate_spikes(out, self.timesteps, self.tau, self.delta_t)
         else:
             out = rate_spikes(out, self.timesteps)
-        return temp, out
+        return out
 
     def forward_features(self, x):
-        x = torch.cat([x[:, _, :, :, :] for _ in range(self.timesteps)], 0)
+        x = torch.cat([x[:,_,:,:,:] for _ in range(self.timesteps)], 0)
         inputs = x.view(-1, 784)
         feature_list = []
         x_ = self.fc1(inputs, projection=False)
@@ -174,8 +171,8 @@ class spiking_MLP(nn.Module):
             self.classifiers.append(nn.Linear(self.n_hidden, num_classes).to(self.classifiers[0].weight.device))
 
     def merge_hlop_subspace(self):
-        for module in self.hlop_modules:
-            module.merge_subspace()
+        for m in self.hlop_modules:
+            m.merge_subspace()
 
     def add_hlop_subspace(self, out_numbers):
         if isinstance(out_numbers, list):
@@ -185,29 +182,17 @@ class spiking_MLP(nn.Module):
             for m in self.hlop_modules:
                 m.add_subspace(out_numbers)
 
-    # def adjust_hlop_lr(self, gamma):
+    #def adjust_hlop_lr(self, gamma):
     #    for m in self.hlop_modules:
     #        m.adjust_lr(gamma)
 
     def fix_bn(self):
-        """
-        修复神经网络中的一些层，以确保在模型的推理（评估）模式下进行正确的处理
-        @return:
-        """
-        # 遍历模型中的所有模块
-        for module in self.modules():
-            # 如果模块是 BatchNorm2d 层
-            if isinstance(module, nn.BatchNorm2d):
-                # 设置 BatchNorm 层为评估模式
-                module.eval()
-                # 禁用 BatchNorm 层权重的梯度更新
-                module.weight.requires_grad = False
-                # 禁用 BatchNorm 层偏置的梯度更新
-                module.bias.requires_grad = False
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()
+                m.weight.requires_grad = False
+                m.bias.requires_grad = False
 
-            # 如果模块是 LIFNeuron 或 IFNeuron 层
-            if isinstance(module, LIFNeuron) or isinstance(module, IFNeuron):
-                # 如果设置允许训练阈值（Vth）
+            if isinstance(m, LIFNeuron) or isinstance(m, IFNeuron):
                 if self.snn_setting['train_Vth']:
-                    # 禁用阈值（Vth）的梯度更新
-                    module.Vth.requires_grad = False
+                    m.Vth.requires_grad = False

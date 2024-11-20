@@ -1,10 +1,11 @@
 import math
-
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-
+from torch.autograd import Variable
+import torch.distributed as dist
+from typing import Optional, Any
+from torch import Tensor
 
 def rate_spikes(data, timesteps):
     chw = data.size()[1:]
@@ -14,11 +15,9 @@ def rate_spikes(data, timesteps):
 
 def weight_rate_spikes(data, timesteps, tau, delta_t):
     chw = data.size()[1:]
-    data_reshape = data.view(timesteps, -1, *chw).permute(list(range(1, len(chw) + 2)) + [0])
-    weight = torch.tensor(
-        [math.exp(-1 / tau * (delta_t * timesteps - ii * delta_t)) for ii in range(1, timesteps + 1)]).to(
-        data_reshape.device)
-    return (weight * data_reshape).sum(dim=len(chw) + 1) / weight.sum()
+    data_reshape = data.view(timesteps, -1, *chw).permute(list(range(1,len(chw)+2)) + [0])
+    weight = torch.tensor([math.exp(-1/tau*(delta_t * timesteps-ii*delta_t)) for ii in range(1, timesteps+1)]).to(data_reshape.device)
+    return (weight * data_reshape).sum(dim=len(chw)+1) / weight.sum()
 
 
 def sum_tensor(tensor: torch.Tensor) -> torch.Tensor:
@@ -75,7 +74,6 @@ class RateStatus(nn.Module):
     '''
     Record the average firing rate of one neuron layer.
     '''
-
     def __init__(self, max_num=1e6):
         super().__init__()
         self.pool = []
@@ -126,8 +124,10 @@ class IFNeuron(nn.Module):
         return out
 
 
-def generate_spike_lif(out_s, mem_potential, Vth=0.1, tau=1.0, delta_t=0.05, alpha=0.3):
-    beta = torch.exp(-delta_t / tau)
+
+
+def generate_spike_lif(out_s,mem_potential, Vth=0.1, tau=1.0, delta_t=0.05, alpha=0.3):
+    beta = torch.exp(-delta_t/tau)
     spikes = []
     for t in range(out_s.size(0)):
         mem_potential = beta * mem_potential + (1 - beta) * out_s[t]
@@ -135,6 +135,7 @@ def generate_spike_lif(out_s, mem_potential, Vth=0.1, tau=1.0, delta_t=0.05, alp
         mem_potential -= spike
         spikes.append(spike / delta_t)
     return spikes
+
 
 
 def lif_grad(Vth, delta_t, grad_output_coding, input_rate_coding, tau, timesteps):
@@ -220,140 +221,3 @@ class LIFNeuron(nn.Module):
             with torch.no_grad():
                 self.firing_rate.append(rate_spikes(out, self.timesteps) / self.Vth * self.delta_t)
         return out
-
-
-def sum_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    rt = tensor.clone()
-    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
-    return rt
-
-class ALIFFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input, timesteps, v_th_base, tau_m, tau_th, beta, 
-                v_rest=-65.0, v_reset=-65.0, delta_t=0.05):
-        ctx.save_for_backward(input)
-        
-        # Extract dimensions
-        chw = input.size()[1:]
-        input_reshape = input.view(timesteps, -1, *chw)
-        
-        # Initialize state variables
-        mem_potential = torch.ones(input_reshape.size(1), *chw).to(input_reshape.device) * v_rest
-        v_th = torch.ones_like(mem_potential) * v_th_base
-        spikes = []
-        
-        # Time constants
-        alpha_m = torch.exp(-delta_t / tau_m)
-        alpha_th = torch.exp(-delta_t / tau_th)
-
-        for t in range(timesteps):
-            # Update membrane potential
-            mem_potential = alpha_m * (mem_potential - v_rest) + \
-                          (1 - alpha_m) * input_reshape[t] + v_rest
-            
-            # Generate spikes
-            spike = (mem_potential >= v_th).float()
-            
-            # Reset membrane potential
-            mem_potential = (1 - spike) * mem_potential + spike * v_reset
-            
-            # Update threshold
-            v_th = alpha_th * (v_th - v_th_base) + \
-                  (1 - alpha_th) * (beta * spike) + v_th_base
-            
-            spikes.append(spike)
-
-        output = torch.stack(spikes)
-        
-        # Save context for backward pass
-        ctx.delta_t = delta_t
-        ctx.v_th_base = v_th_base
-        ctx.tau_m = tau_m
-        ctx.tau_th = tau_th
-        ctx.beta = beta
-        
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input = ctx.saved_tensors[0]
-        timesteps = input.size(0) // input.size(1)
-        
-        # Surrogate gradient calculation
-        with torch.no_grad():
-            scale = 6.0
-            grad_scale = torch.clamp(1.0 - torch.abs(input/scale), min=0)
-            grad = grad_output * grad_scale / timesteps
-        
-        return grad, None, None, None, None, None, None, None, None
-
-class ALIFNeuron(nn.Module):
-    def __init__(self, snn_setting):
-        super().__init__()
-        self.timesteps = snn_setting['timesteps']
-        
-        # Basic neuron parameters
-        self.v_rest = snn_setting.get('v_rest', -65.0)
-        self.v_reset = snn_setting.get('v_reset', -65.0)
-        self.v_th_base = nn.Parameter(torch.tensor(snn_setting['v_th_base']))
-        
-        # Adaptive parameters
-        self.tau_m = nn.Parameter(torch.tensor(snn_setting['tau_m']))
-        self.tau_th = nn.Parameter(torch.tensor(snn_setting['tau_th']))
-        self.beta = nn.Parameter(torch.tensor(snn_setting['beta']))
-        
-        # Time step
-        self.delta_t = snn_setting.get('delta_t', 0.05)
-        
-        # Optional rate statistics
-        self.rate_stat = snn_setting.get('rate_stat', False)
-        if self.rate_stat:
-            self.firing_rate = RateStatus()
-
-    def forward(self, x):
-        # Ensure parameters stay in valid ranges
-        with torch.no_grad():
-            self.tau_m.data.clamp_(min=1e-3)
-            self.tau_th.data.clamp_(min=1e-3)
-            self.beta.data.clamp_(min=0)
-            self.v_th_base.data.clamp_(min=self.v_rest)
-        
-        out = ALIFFunction.apply(
-            x, self.timesteps, self.v_th_base, 
-            self.tau_m, self.tau_th, self.beta,
-            self.v_rest, self.v_reset, self.delta_t
-        )
-        
-        if not self.training and self.rate_stat:
-            with torch.no_grad():
-                self.firing_rate.append(
-                    rate_spikes(out, self.timesteps)
-                )
-                
-        return out
-
-# Helper class for rate statistics (unchanged)
-class RateStatus(nn.Module):
-    def __init__(self, max_num=1e6):
-        super().__init__()
-        self.pool = []
-        self.num = 0
-        self.max_num = max_num
-
-    def append(self, data):
-        self.pool.append(data.view(-1))
-        self.num += self.pool[-1].size()[0]
-        if self.num > self.max_num:
-            self.random_shrink()
-
-    def random_shrink(self):
-        tensor = torch.cat(self.pool, 0)
-        tensor = tensor[torch.randint(len(tensor), size=[int(self.max_num // 2)])]
-        self.pool.clear()
-        self.pool.append(tensor)
-
-    def avg(self, max_num=1e6):
-        tensor = torch.cat(self.pool, 0)
-        if len(tensor) > max_num:
-            tensor = tensor[torch.randint(len(tensor), size=[int(max_num)])]
-        return tensor.mean()

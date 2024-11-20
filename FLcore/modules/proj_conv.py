@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Function
 import numpy as np
-
+from copy import deepcopy
+import time
 
 class Replace(Function):
     @staticmethod
@@ -112,10 +113,8 @@ class DecoupledConvProjGradFunction(Function):
 
 class Conv2dProj(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False,
-                 padding_mode='zeros', device=None, dtype=None, proj_type='input'):
-        super(Conv2dProj, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups,
-                                         bias, padding_mode, device, dtype)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', device=None, dtype=None, proj_type='input'):
+        super(Conv2dProj, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device, dtype)
         # now only support common settings
         assert groups == 1
         self.proj_type = proj_type
@@ -126,7 +125,7 @@ class Conv2dProj(nn.Conv2d):
         # input: B*C*H*W, proj_func: (B*NH*NW) * (C*K*K) => (B*NH*NW) * (C*K*K)
         # originally y=Wx calculates the gradient of W by x, replace x by proj_x for gradients
         # this is a simple but costing implementation, TODO: consider the bottom implentation
-        # start = time.time()
+        #start = time.time()
 
         # update: proj_type=='weight' enables acceleration to project weight gradients instead of presynaptic activities
         # this can leverage bottom acceleration for convolutional operations
@@ -142,34 +141,29 @@ class Conv2dProj(nn.Conv2d):
                 H_ = int(np.floor((H - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
                 W_ = int(np.floor((W - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
             else:
-                input_unfold = F.unfold(input, self.kernel_size, dilation=self.dilation, padding=self.padding,
-                                        stride=self.stride)
+                input_unfold = F.unfold(input, self.kernel_size, dilation=self.dilation, padding=self.padding, stride=self.stride)
 
-                H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(
-                    self.stride[0]) + 1))
-                W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(
-                    self.stride[1]) + 1))
+                H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
+                W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
 
-            # print(time.time() - start)
+            #print(time.time() - start)
 
             with torch.no_grad():
                 # shape: B, L, C * kernel_size^2
                 shape = input_unfold.transpose(1, 2).shape
-                proj_input = proj_func(input_unfold.transpose(1, 2).reshape(-1, shape[2])).reshape(shape).transpose(1,
-                                                                                                                    2)
+                proj_input = proj_func(input_unfold.transpose(1, 2).reshape(-1, shape[2])).reshape(shape).transpose(1, 2)
                 orth_input = (input_unfold - proj_input).detach()
 
             out = ConvProjGradFunction.apply(input_unfold, orth_input, weight, bias)
 
-            # print(time.time() - start)
+            #print(time.time() - start)
             # F.fold function is slow
-            # out = F.fold(out, (H_, W_), (1, 1))
+            #out = F.fold(out, (H_, W_), (1, 1))
             out = out.reshape(out.shape[0], out.shape[1], H_, W_)
-            # print(time.time() - start)
+            #print(time.time() - start)
         else:
             def hook_func(grad):
                 return (grad.reshape(grad.size(0), -1) - proj_func(grad.reshape(grad.size(0), -1))).reshape(grad.shape)
-
             self.h = weight.register_hook(hook_func)
             out = self._conv_forward(input, weight, bias)
 
@@ -192,7 +186,7 @@ class Conv2dProj(nn.Conv2d):
         # input: B*C*H*W, proj_func: (B*NH*NW) * (C*K*K) => (B*NH*NW) * (C*K*K)
         # originally y=Wx calculates the gradient of W by x, replace x by proj_x for gradients
         # this is a simple but costing implementation, TODO: consider the bottom implentation
-        # start = time.time()
+        #start = time.time()
 
         with torch.no_grad():
             conv_output = self._conv_forward(input, weight, bias).detach()
@@ -210,15 +204,12 @@ class Conv2dProj(nn.Conv2d):
             H_ = int(np.floor((H - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
             W_ = int(np.floor((W - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
         else:
-            input_unfold = F.unfold(replace_input, self.kernel_size, dilation=self.dilation, padding=self.padding,
-                                    stride=self.stride)
+            input_unfold = F.unfold(replace_input, self.kernel_size, dilation=self.dilation, padding=self.padding, stride=self.stride)
 
-            H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(
-                self.stride[0]) + 1))
-            W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(
-                self.stride[1]) + 1))
+            H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
+            W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
 
-        # print(time.time() - start)
+        #print(time.time() - start)
 
         with torch.no_grad():
             shape = input_unfold.transpose(1, 2).shape
@@ -252,10 +243,8 @@ class Conv2dProj(nn.Conv2d):
 # weight standardization
 class WSConv2dProj(Conv2dProj):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True,
-                 padding_mode='zeros', device=None, dtype=None, gain=True, eps=1e-4, proj_type='input'):
-        super(WSConv2dProj, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups,
-                                           bias, padding_mode, device, dtype, proj_type)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', device=None, dtype=None, gain=True, eps=1e-4, proj_type='input'):
+        super(WSConv2dProj, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device, dtype, proj_type)
         # now only support common settings
         assert groups == 1
 
@@ -299,8 +288,7 @@ class WSConv2dProj(Conv2dProj):
             if projection:
                 assert self.fix_affine
                 assert proj_func is not None
-                return self._conv_forward_with_proj_replace(input, replace_input, self.get_weight(), self.bias,
-                                                            proj_func)
+                return self._conv_forward_with_proj_replace(input, replace_input, self.get_weight(), self.bias, proj_func)
             else:
                 return self._conv_forward_replace(input, replace_input, self.get_weight(), self.bias)
 
@@ -316,10 +304,8 @@ class WSConv2dProj(Conv2dProj):
 # TODO implement for proj_type=='weight'
 class SSConv2dProj(Conv2dProj):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False,
-                 padding_mode='zeros', device=None, dtype=None):
-        super(SSConv2dProj, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups,
-                                           bias, padding_mode, device, dtype)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', device=None, dtype=None):
+        super(SSConv2dProj, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device, dtype)
         # now only support common settings
         assert groups == 1
         self.scale = np.sqrt(2 / (self.kernel_size[0] * self.kernel_size[1] * self.out_channels))
@@ -339,13 +325,10 @@ class SSConv2dProj(Conv2dProj):
             H_ = int(np.floor((H - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
             W_ = int(np.floor((W - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
         else:
-            input_unfold = F.unfold(input, self.kernel_size, dilation=self.dilation, padding=self.padding,
-                                    stride=self.stride)
+            input_unfold = F.unfold(input, self.kernel_size, dilation=self.dilation, padding=self.padding, stride=self.stride)
 
-            H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(
-                self.stride[0]) + 1))
-            W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(
-                self.stride[1]) + 1))
+            H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
+            W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
 
         with torch.no_grad():
             # shape: B, L, C * kernel_size^2
@@ -354,7 +337,7 @@ class SSConv2dProj(Conv2dProj):
             orth_input = (input_unfold - proj_input).detach()
 
         out = DecoupledConvProjGradFunction.apply(input_unfold, orth_input, weight, weight_back, bias)
-        # out = F.fold(out, (H_, W_), (1, 1))
+        #out = F.fold(out, (H_, W_), (1, 1))
         out = out.reshape(out.shape[0], out.shape[1], H_, W_)
 
         return out
@@ -370,16 +353,13 @@ class SSConv2dProj(Conv2dProj):
             H_ = int(np.floor((H - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
             W_ = int(np.floor((W - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
         else:
-            input_unfold = F.unfold(input, self.kernel_size, dilation=self.dilation, padding=self.padding,
-                                    stride=self.stride)
+            input_unfold = F.unfold(input, self.kernel_size, dilation=self.dilation, padding=self.padding, stride=self.stride)
 
-            H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(
-                self.stride[0]) + 1))
-            W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(
-                self.stride[1]) + 1))
+            H_ = int(np.floor((H + self.padding[0] * 2 - self.dilation[0] * (self.kernel_size[0] - 1) - 1) / float(self.stride[0]) + 1))
+            W_ = int(np.floor((W + self.padding[1] * 2 - self.dilation[1] * (self.kernel_size[1] - 1) - 1) / float(self.stride[1]) + 1))
 
         out = DecoupledConvFunction.apply(input_unfold, weight, weight_back, bias)
-        # out = F.fold(out, (H_, W_), (1, 1))
+        #out = F.fold(out, (H_, W_), (1, 1))
         out = out.reshape(out.shape[0], out.shape[1], H_, W_)
 
         return out
@@ -391,3 +371,5 @@ class SSConv2dProj(Conv2dProj):
             return self._conv_forward_with_proj(input, self.weight, weight_back, self.bias, proj_func)
         else:
             return self._conv_forward_decouple(input, self.weight, weight_back, self.bias)
+
+

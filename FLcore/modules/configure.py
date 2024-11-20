@@ -1,71 +1,69 @@
-"""
-这个py文件定义了SpikingJelly中使用的一些变量。
+'''
+This py file defines some variables used in SpikingJelly.
+Here is an example of how you can change them to make effect in your codes:
 
-下面是一个如何在代码中更改它们以使其生效的示例
+    import spikingjelly
+    spikingjelly.configure.cuda_threads = 512
 
-import spikingjelly
-spikingjelly.configure. cuda_threads = 512
+Do not change them in this way, which will not make effect:
 
-不要这样更改，否则不会起作用：
+    from spikingjelly.configure import cuda_threads
+    cuda_threads = 512
 
-from spikingjelly. configure import cuda_threads
-cuda_threads = 512
-
-"""
-
+'''
 max_threads_number_for_datasets_preprocess = 16
-"""
-'max_threads_number_for_datasets_preprocess' 定义了数据集预处理的最大线程数，即
-1. 读取二进制事件并将其保存为numpy格式
-2. 将事件集成到框架中。
+'''
+`max_threads_number_for_datasets_preprocess` defines the maximum threads for datasets preprocessing, which is 
+1. reading binary events and saving them to numpy format
+2. integrating events to frames.
 
-注意，太大的 'max_threads_number_for_datasets_preprocess' 将使磁盘过载并降低速度。
-"""
+Note that a too larger `max_threads_number_for_datasets_preprocess` will overload the disc and slow down the speed.
+'''
 
 cuda_threads = 1024
-"""
-'cuda_threads' 定义了CUDA内核的默认线程数。
+'''
+`cuda_threads` defines the default threads number for CUDA kernel.
 
-建议将 'cuda_threads' 设置为2的幂。
-"""
+It is recommended that `cuda_threads` is the power of 2.
+'''
 
 cuda_compiler_options = ('-use_fast_math',)
-"""
-'cuda_compiler_options' 定义了传递给后端（NVRTC或NVCC）的编译器选项。
+'''
+`cuda_compiler_options` defines the compiler options passed to the backend (NVRTC or NVCC). 
 
-详情请参阅
+For more details, refer to 
 1. https://docs.nvidia.com/cuda/nvrtc/index.html#group__options 
 2. https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/index.html#command-option-description
 3. https://github.com/fangwei123456/spikingjelly/discussions/116
-"""
+'''
 
 cuda_compiler_backend = 'nvrtc'
-"""
-'cuda_compiler_backend' 定义CUDA（cupy）的编译器。
+'''
+`cuda_compiler_backend` defines the compiler for CUDA(cupy).
 
-它可以设置为 'nvcc' 或 'nvrtc'。
-"""
+It can be set to 'nvcc' or 'nvrtc'.
+'''
 
 save_datasets_compressed = True
-"""
-如果 'save_datasets_compressed == True' ，则spikingjelly.datasets中的事件和帧将以压缩的NPZ格式保存。
+'''
+If `save_datasets_compressed == True`, events and frames in spikingjelly.datasets will be saved in compressed npz format.
 
-压缩后的npz文件占用的磁盘内存更少，但读取时间更长。
-"""
+The compressed npz file consumes less memory in disk but more time in reading.
+'''
 
 save_spike_as_bool_in_neuron_kernel = False
-"""
-如果 'save_spike_as_bool_in_neuron_kernel == True'，神经元的cupy后端使用的神经元内核将把峰值保存为bool，而不是浮点/半张量，这可以减少内存消耗。
-"""
+'''
+If `save_spike_as_bool_in_neuron_kernel == True`, the neuron kernel used in the neuron's cupy backend will save the spike as a bool, rather than float/half tensor for backward, which can reduce the memory consumption.
+'''
 
 save_bool_spike_level = 0
-"""
-当 'save_spike_as_bool_in_neuron_kernel == True' 时， 'save_bool_spike_level' 对SpikeConv/ spikellinear和神经元的cupy内核起作用。
+'''
+`save_bool_spike_level` take effects on SpikeConv/SpikeLinear, and on neuron's cupy kernel when `save_spike_as_bool_in_neuron_kernel == True`.
 
-如果 'save_bool_spike_level == 0' ，峰值将以bool形式保存。注意bool使用8比特，而不是1比特。
+If `save_bool_spike_level == 0`, spikes will be saved in bool. Note that bool uses 8-bit, rather than 1-bit.
 
-如果 'save_bool_spike_level == 1' ，峰值将保存在uint8中，每个8比特存储8个峰值。
+If `save_bool_spike_level == 1`, spikes will be saved in uint8 with each 8-bit storing 8 spikes.
 
-较大的 'save_bool_spike_level' 意味着更少的内存消耗，但速度更慢。
-"""
+A larger `save_bool_spike_level` means less memory consumption but slower speed.
+'''
 

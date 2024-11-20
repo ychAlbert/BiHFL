@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
 
-
+# module for hebbian learning based orthogonal projection
 class HLOP(nn.Module):
+
     def __init__(self, in_features, lr=0.01, momentum=True, spiking=False, spiking_scale=20., spiking_timesteps=1000.):
         super(HLOP, self).__init__()
-
         self.in_features = in_features
 
         self.subspace_num = 0
@@ -24,11 +26,8 @@ class HLOP(nn.Module):
 
     def add_subspace(self, out_numbers):
         if out_numbers > 0:
-            # 子空间数量+1
             self.subspace_num += 1
-            #
             self.out_numbers_list.append(out_numbers)
-            #
             self.index_list.append(self.index_list[-1] + out_numbers)
 
             if self.subspace_num == 1:
@@ -38,8 +37,8 @@ class HLOP(nn.Module):
 
                 # initialize weights
                 torch.nn.init.orthogonal_(self.weight.data)
-                # torch.nn.init.xavier_normal_(self.weight.data)
-
+                #torch.nn.init.xavier_normal_(self.weight.data)
+                
             else:
                 dim = self.weight.size(0) + out_numbers
                 weight_new = torch.zeros((dim, self.in_features)).to(self.weight.device)
@@ -58,9 +57,6 @@ class HLOP(nn.Module):
                     self.delta_weight_momentum = nn.Parameter(delta_weight_momentum_new)
 
     def merge_subspace(self):
-        """
-        合并子空间
-        """
         assert self.subspace_num > 0
         self.subspace_num = 1
         self.out_numbers_list = [self.index_list[-1]]
@@ -71,12 +67,12 @@ class HLOP(nn.Module):
         weight = self.weight.data
         if self.momentum:
             delta_weight_momentum = self.delta_weight_momentum.data
-
+        
         m, n = weight.size()
         assert n == x.size(1) and m == y.size(1)
 
         fix_index = []
-        if fix_subspace_id_list is not None:
+        if fix_subspace_id_list != None:
             for sid in fix_subspace_id_list:
                 fix_index.extend(range(self.index_list[sid], self.index_list[sid + 1]))
 
@@ -121,8 +117,7 @@ class HLOP(nn.Module):
         y = y0
 
         if self.spiking:
-            y = (torch.clamp(y, -self.spiking_scale,
-                             self.spiking_scale) / self.spiking_scale * self.spiking_timesteps).round() / self.spiking_timesteps * self.spiking_scale
+            y = (torch.clamp(y, -self.spiking_scale, self.spiking_scale) / self.spiking_scale * self.spiking_timesteps).round() / self.spiking_timesteps * self.spiking_scale
 
         return y
 
@@ -164,3 +159,5 @@ class HLOP(nn.Module):
 
     def adjust_lr(self, gamma):
         self.lr = self.lr * gamma
+
+

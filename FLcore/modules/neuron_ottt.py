@@ -1,10 +1,8 @@
-from typing import Callable
-
+from typing import Callable, overload
 import torch
-
+import torch.nn as nn
 from . import surrogate
 from .neuron_spikingjelly import IFNode, LIFNode
-
 
 class OnlineIFNode(IFNode):
     def __init__(self, v_threshold: float = 1., v_reset: float = None,

@@ -7,14 +7,10 @@ from FLcore.modules.neuron_dsr import rate_spikes, weight_rate_spikes
 from FLcore.modules.proj_conv import Conv2dProj, SSConv2dProj
 from FLcore.modules.proj_linear import LinearProj, SSLinear, SSLinearProj
 from FLcore.modules.hlop_module import HLOP
-import numpy as np
-from typing import Callable, Optional, List
+from typing import Optional, List
 
 
-__all__ = [
-    'SpikingResNet',
-    'spiking_resnet18',
-]
+__all__ = ['SpikingResNet', 'spiking_resnet18']
 
 
 def update_conv_hlop(x: torch.Tensor, hlop_module, iteration=5, fix_subspace_id_list: Optional[List[int]] = None, kernel_size: int = 3, padding: int = 1, stride: int = 1):
@@ -287,23 +283,24 @@ class SpikingResNet(nn.Module):
 
         out = self.pool(out)
         out = out.view(out.size(0), -1)
-        out_ = out
+        
+        out_before_clf = out
         if not self.share_classifier:
             assert task_id is not None
             out = self.classifiers[task_id](out)
         else:
-            m = self.classifiers[0]
+            module = self.classifiers[0]
             if projection:
-                proj_func = self.hlop_modules[index].get_proj_func(subspace_id_list=proj_id_list)
-                out_ = m(out, projection=True, proj_func = proj_func)
+                proj_func = self.hlop_modules[0].get_proj_func(subspace_id_list=proj_id_list)
+                out_ = module(out, projection=True, proj_func = proj_func)
             else:
-                out_ = m(out, projection=False)
+                out_ = module(out, projection=False)
             if update_hlop:
                 if self.hlop_with_wfr:
                     # update hlop by weighted firing rate
                     out = weight_rate_spikes(out, self.timesteps, self.tau, self.delta_t)
                 with torch.no_grad():
-                    self.hlop_modules[index].forward_with_update(out, hlop_iteration, fix_subspace_id_list)
+                    self.hlop_modules[0].forward_with_update(out, hlop_iteration, fix_subspace_id_list)
             out = out_
         
         if self.weight_avg:
@@ -311,7 +308,7 @@ class SpikingResNet(nn.Module):
         else:
             out = rate_spikes(out, self.timesteps)
 
-        return out_, out
+        return out_before_clf, out
 
     def forward_features(self, x):
         inputs = torch.cat([x[:,_,:,:,:] for _ in range(self.timesteps)], 0)

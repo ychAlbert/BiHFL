@@ -211,8 +211,8 @@ class clientMOON(Client):
 
         for replay_task in tasks_learned:
             replay_trainset = self.replay_trainset[f'task {replay_task}']
-            replay_trainloader = DataLoader(replay_trainset, batch_size=self.replay_batch_size, shuffle=True,
-                                            drop_last=False)
+            replay_trainloader = DataLoader(replay_trainset, batch_size=self.replay_batch_size, 
+                                            shuffle=True, drop_last=False)
             n_replay_trainset = len(replay_trainset)
 
             batch_time = AverageMeter()

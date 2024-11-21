@@ -1,18 +1,12 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
 from FLcore.modules.neuron_dsr import LIFNeuron, IFNeuron
 from FLcore.modules.neuron_dsr import rate_spikes, weight_rate_spikes
-from FLcore.modules.proj_conv import Conv2dProj, SSConv2dProj
 from FLcore.modules.proj_linear import LinearProj, SSLinear, SSLinearProj, FALinear, FALinearProj
 from FLcore.modules.hlop_module import HLOP
-import numpy as np
 
 
-__all__ = [
-    'spiking_MLP'
-]
+__all__ = ['spiking_MLP']
 
 
 class spiking_MLP(nn.Module):
@@ -112,16 +106,18 @@ class spiking_MLP(nn.Module):
             with torch.no_grad():
                 self.hlop_modules[1].forward_with_update(x, fix_subspace_id_list=fix_subspace_id_list)
         x = self.sn2(x_)
+
+        out_before_clf = x
         if not self.share_classifier:
             assert task_id is not None
             x = self.classifiers[task_id](x)
         else:
-            m = self.classifiers[0]
+            classifier = self.classifiers[0]
             if projection:
                 proj_func = self.hlop_modules[2].get_proj_func(subspace_id_list=proj_id_list)
-                x_ = m(x, projection=True, proj_func=proj_func)
+                x_ = classifier(x, projection=True, proj_func=proj_func)
             else:
-                x_ = m(x, projection=False)
+                x_ = classifier(x, projection=False)
             if update_hlop:
                 if self.hlop_with_wfr:
                     # update hlop by weighted firing rate
@@ -135,7 +131,7 @@ class spiking_MLP(nn.Module):
             out = weight_rate_spikes(out, self.timesteps, self.tau, self.delta_t)
         else:
             out = rate_spikes(out, self.timesteps)
-        return out
+        return out_before_clf, out
 
     def forward_features(self, x):
         x = torch.cat([x[:,_,:,:,:] for _ in range(self.timesteps)], 0)

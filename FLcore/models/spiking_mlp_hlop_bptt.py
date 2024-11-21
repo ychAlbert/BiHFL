@@ -16,15 +16,19 @@ __all__ = [
 
 
 class spiking_MLP(nn.Module):
-    def __init__(self, num_classes=10, n_hidden=800, neuron_type='lif', share_classifier=True, ss=False, fa=False, timesteps=6, hlop_spiking=False, hlop_spiking_scale=20., hlop_spiking_timesteps=1000., **kwargs):
+    def __init__(self, num_classes=10, n_hidden=800, neuron_type='lif', 
+                 share_classifier=True, ss=False, fa=False, timesteps=6, 
+                 hlop_spiking=False, hlop_spiking_scale=20., hlop_spiking_timesteps=1000., **kwargs):
         super(spiking_MLP, self).__init__()
         self.neuron_type = neuron_type
+        
         if self.neuron_type == 'lif':
             self.multi_step_neuron = MultiStepLIFNode
         elif self.neuron_type == 'if':
             self.multi_step_neuron = MultiStepIFNode
         else:
             raise NotImplementedError('Please use IF or LIF model.')
+        
         self.timesteps = timesteps
         self.hlop_spiking = hlop_spiking
         self.hlop_spiking_scale = hlop_spiking_scale
@@ -104,16 +108,18 @@ class spiking_MLP(nn.Module):
         x = x_.reshape(T, B, -1)
         x = self.sn2(x)
         x = x.view(T*B, -1)
+
+        out_before_clf = torch.mean(x.reshape(T, B, -1), dim=0)
         if not self.share_classifier:
             assert task_id is not None
             x = self.classifiers[task_id](x)
         else:
-            m = self.classifiers[0]
+            classifier = self.classifiers[0]
             if projection:
                 proj_func = self.hlop_modules[2].get_proj_func(subspace_id_list=proj_id_list)
-                x_ = m(x, projection=True, proj_func=proj_func)
+                x_ = classifier(x, projection=True, proj_func=proj_func)
             else:
-                x_ = m(x, projection=False)
+                x_ = classifier(x, projection=False)
             if update_hlop:
                 with torch.no_grad():
                     self.hlop_modules[2].forward_with_update(x, fix_subspace_id_list=fix_subspace_id_list)
@@ -121,7 +127,7 @@ class spiking_MLP(nn.Module):
 
         out = x.reshape(T, B, -1)
         out = torch.mean(out, dim=0)
-        return out
+        return out_before_clf, out
 
     def add_classifier(self, num_classes):
         self.classifier_num += 1

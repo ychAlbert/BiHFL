@@ -1,18 +1,13 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
 from FLcore.modules.neuron_ottt import OnlineIFNode, OnlineLIFNode
 import FLcore.modules.surrogate as surrogate
-from FLcore.modules.proj_conv import Conv2dProj, SSConv2dProj
+from FLcore.modules.proj_conv import Conv2dProj
 from FLcore.modules.proj_linear import LinearProj, SSLinear, SSLinearProj, FALinear, FALinearProj
 from FLcore.modules.hlop_module import HLOP
-import numpy as np
 
 
-__all__ = [
-    'spiking_MLP_ottt'
-]
+__all__ = ['spiking_MLP_ottt']
 
 
 class WrapedSNNOp(nn.Module):
@@ -46,15 +41,19 @@ class WrapedSNNOp(nn.Module):
 
 
 class spiking_MLP(nn.Module):
-    def __init__(self, num_classes=10, n_hidden=800, share_classifier=True, neuron_type='lif', ss=False, fa=False, hlop_spiking=False, hlop_spiking_scale=20., hlop_spiking_timesteps=1000., **kwargs):
+    def __init__(self, num_classes=10, n_hidden=800, share_classifier=True, 
+                 neuron_type='lif', ss=False, fa=False, hlop_spiking=False, 
+                 hlop_spiking_scale=20., hlop_spiking_timesteps=1000., **kwargs):
         super(spiking_MLP, self).__init__()
         self.neuron_type = neuron_type
+        
         if self.neuron_type == 'lif':
             self.single_step_neuron = OnlineLIFNode
         elif self.neuron_type == 'if':
             self.single_step_neuron = OnlineIFNode
         else:
             raise NotImplementedError('Please use IF or LIF model.')
+        
         self.hlop_spiking = hlop_spiking
         self.hlop_spiking_scale = hlop_spiking_scale
         self.hlop_spiking_timesteps = hlop_spiking_timesteps
@@ -142,23 +141,25 @@ class spiking_MLP(nn.Module):
             x = self.sn2(x_, output_type='spike_rate', **kwargs)
         else:
             x = self.sn2(x_, **kwargs)
+        
+        out_before_clf = x
         if not self.share_classifier:
             assert task_id is not None
             x = self.classifiers[task_id](x, require_wrap=require_wrap)
         else:
-            m = self.classifiers[0]
+            classifier = self.classifiers[0]
             if projection:
                 proj_func = self.hlop_modules[2].get_proj_func(subspace_id_list=proj_id_list)
-                x_ = m(x, projection=True, proj_func=proj_func, require_wrap=require_wrap)
+                x_ = classifier(x, projection=True, proj_func=proj_func, require_wrap=require_wrap)
             else:
-                x_ = m(x, projection=False, require_wrap=require_wrap)
+                x_ = classifier(x, projection=False, require_wrap=require_wrap)
             if update_hlop:
                 with torch.no_grad():
                     self.hlop_modules[2].forward_with_update(x, fix_subspace_id_list=fix_subspace_id_list)
             x = x_
 
         out = x
-        return out
+        return out_before_clf, out
 
     def add_classifier(self, num_classes):
         self.classifier_num += 1

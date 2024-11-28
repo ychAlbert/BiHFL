@@ -20,14 +20,15 @@ class clientDyn(Client):
         self.alpha = args.FedDyn_alpha
         self.global_model_vector = None
         self.old_grad = None
+        old_grad = model_parameter_vector(copy.deepcopy(self.local_model))
+        self.old_grad = torch.zeros_like(old_grad)
 
     def set_parameters(self, model):
-        for gp, lp in zip(model.parameters(), self.local_model.parameters()):
-            lp.data = gp.data.clone()
+        for global_param, local_param in zip(model.parameters(), self.local_model.parameters()):
+            local_param.data = global_param.data.clone()
         self.global_model_vector = model_parameter_vector(model).detach().clone()
 
-        old_grad = copy.deepcopy(self.local_model)
-        old_grad = model_parameter_vector(old_grad)
+        old_grad = model_parameter_vector(copy.deepcopy(self.local_model))
         self.old_grad = torch.zeros_like(old_grad)
 
     def train(self, task_id):

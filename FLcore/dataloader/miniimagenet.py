@@ -82,9 +82,7 @@ class iMiniImageNet(MiniImageNet):
         self.td = td
 
     def __getitem__(self, index):
-
         img, target, tt, td = self.data[index], self.labels[index], self.tt[index], self.td[index]
-
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image
         if not torch.is_tensor(img):
@@ -168,10 +166,12 @@ class DatasetGen(object):
                                                memory=None, task_num=task_id, train=False,
                                                transform=self.transformation)
 
+        print(len(self.test_set[task_id]))
+
         train_loader = torch.utils.data.DataLoader(self.train_set[task_id], batch_size=2500,
-                                                   num_workers=self.num_workers,
                                                    pin_memory=self.pin_memory, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(self.test_set[task_id], batch_size=500, num_workers=self.num_workers,
+        
+        test_loader = torch.utils.data.DataLoader(self.test_set[task_id], batch_size=500,
                                                   pin_memory=self.pin_memory, shuffle=True)
 
         self.dataloaders[task_id]['train'] = {'x': [], 'y': []}

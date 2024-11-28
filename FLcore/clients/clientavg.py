@@ -189,8 +189,7 @@ class clientAVG(Client):
             top1 = AverageMeter()
             top5 = AverageMeter()
             end = time.time()
-            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, replay_task),
-                      max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
+            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, replay_task), max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
 
             n_replay_traindata = 0
             train_acc = 0

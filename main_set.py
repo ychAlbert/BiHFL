@@ -35,7 +35,7 @@ parser.add_argument('--FedDyn_alpha', type=float, default=1.0, help='FedDyn算�
 parser.add_argument('--FedProx_mu', type=float, default=0.1, help='FedProx算法的μ参数')
 parser.add_argument('--MOON_tau', type=float, default=1.0, help='MOON算法的τ参数')
 parser.add_argument('--MOON_mu', type=float, default=1.0, help='MOON算法的μ参数')
-parser.add_argument('--SCAFFOLD_glr', type=float, default=1.0, help='SCAFFOLD算法中的全局学习率')
+parser.add_argument('--SCAFFOLD_eta', type=float, default=1.0, help='SCAFFOLD算法的η参数')
 # 联邦算法相关参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 # 训练及重放相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -69,7 +69,7 @@ parser.add_argument('--root_path', type=str, default='./logs', help='文件保�
 # 实验相关设置 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 parser.add_argument('--seed', type=int, default=2024, help='随机种子')
 parser.add_argument('--experiment_name', type=str, default="miniimagenet", help='实验名称')
-parser.add_argument('--fed_algorithm', type=str, default='SCAFFOLD', help='使用的联邦算法')
+parser.add_argument('--fed_algorithm', type=str, default='feddyn', help='使用的联邦算法')
 parser.add_argument('--device', type=str, default="cuda", choices=["cpu", "cuda"], help="实验设备")
 
 parser.add_argument('--use_hlop', action='store_true', help='是否使用hlop')

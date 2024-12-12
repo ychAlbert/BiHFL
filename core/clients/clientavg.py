@@ -3,6 +3,7 @@
 # @Description : FedAvg算法的客户端类
 import time
 
+from overrides import overrides
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -16,6 +17,7 @@ class clientAVG(Client):
     def __init__(self, args, id, trainset, taskcla, model):
         super().__init__(args, id, trainset, taskcla, model)
 
+    @overrides
     def set_parameters(self, model):
         """
         根据接收到的模型参数设置相关参数
@@ -25,6 +27,7 @@ class clientAVG(Client):
         for old_param, new_param in zip(self.local_model.parameters(), model.parameters()):
             old_param.data = new_param.data.clone()
 
+    @overrides
     def train(self, task_id):
         bptt = True if self.args.experiment_name.endswith('bptt') else False        # 是否是bptt实验
         ottt = True if self.args.experiment_name.endswith('ottt') else False        # 是否是ottt实验
@@ -161,6 +164,7 @@ class clientAVG(Client):
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
 
+    @overrides
     def replay(self, tasks_learned):
         self.local_model.train()
         self.local_model.fix_bn()

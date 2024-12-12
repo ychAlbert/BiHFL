@@ -3,8 +3,10 @@
 # @Description : SCAFFOLD算法的客户端类
 import copy
 import time
+from collections import OrderedDict
 
-from overrides import overrides
+import torch
+import torch.nn.functional as F
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -17,61 +19,108 @@ __all__ = ['clientSCAFFOLD']
 class clientSCAFFOLD(Client):
     def __init__(self, args, id, trainset, taskcla, model):
         super().__init__(args, id, trainset, taskcla, model)
-        self.controls_local = None  # 本地控制参数
-        self.controls_global = None  # 全局控制参数
+        self.client_c = None  # 本地控制参数
+        self.layer_param_num_map = None
 
+        self.global_c = None  # 全局控制参数
         self.global_model = None  # 全局模型
-        self.local_model_old = None  # 旧的本地模型
 
-    @overrides
-    def set_parameters(self, global_model, global_controls):
+    def set_parameters(self, model, global_c):
         """
         从服务器接收到全局的模型和控制参数更新本地的模型和控制参数
-        @param global_model: 全局的模型
-        @param global_controls: 全局的控制参数
-        @return:
+        Args:
+            model: 全局的模型
+            global_c: 全局的控制参数
+
+        Returns:
+
         """
         # 利用服务器接收到的全局模型更新本地模型
-        for yi, x in zip(self.local_model.parameters(), global_model.parameters()):
-            yi.data = x.data.clone()
-        self.controls_local = copy.deepcopy(global_controls)  # 获取本地的控制参数
-        self.controls_global = copy.deepcopy(global_controls)  # 获取全局的控制参数
-        self.global_model = copy.deepcopy(global_model)  # 获取全局的模型
+        for param_old, param_new in zip(self.local_model.parameters(), model.parameters()):
+            param_old.data = param_new.data.clone()
+        # 获取全局控制参数和全局模型
+        self.global_c = global_c
+        self.global_model = model
 
-    def update_c(self):
+    def update_c_before_train(self):
+        # 获取当前本地模型
+        current_local_model = copy.deepcopy(self.local_model)
+
+        # 通过有序字典存放模型（层名称：参数）
+        layer_param_num_map_new = OrderedDict()
+        client_c_new = []
+        start_index = 0
+        for name, param in current_local_model.named_parameters():
+            param_num = len(param.view(-1))
+            layer_param_num_map_new[name] = param_num
+            client_c_new.append(torch.zeros_like(param))
+            start_index += param_num
+
+        if self.client_c is not None:
+            layers = self.layer_param_num_map.keys()
+            for idx, (name, param) in enumerate(current_local_model.named_parameters()):
+                if name in layers:
+                    # 如果对应层的参数数量相等，那么就直接替换
+                    if layer_param_num_map_new[name] == self.layer_param_num_map[name]:
+                        client_c_new[idx] = self.client_c[idx]
+                    # 如果对应层的新参数数量大于旧参数数量，那么就进行填充
+                    if layer_param_num_map_new[name] > self.layer_param_num_map[name]:
+                        param_temp_new, param_temp_old = client_c_new[idx], self.client_c[idx]
+                        m, n = param_temp_new.shape[0], param_temp_new.shape[1]
+                        a, b = param_temp_old.shape[0], param_temp_old.shape[1]
+                        padding_row = m - a
+                        padding_col = n - b
+                        param_temp = F.pad(param_temp_old, (0, padding_col, 0, padding_row))
+                        client_c_new[idx] = param_temp
+
+        self.client_c = client_c_new
+        self.layer_param_num_map = layer_param_num_map_new
+
+    def update_c_after_train(self):
         """
         更新控制参数, 对应论文算法1的第12行中的第二种方式(常用)
         @return:
         """
-        local_model = self.local_model.state_dict()
-        global_controls = self.controls_global.state_dict()
-        global_model = self.global_model.state_dict()
+        # local_model = self.local_model.state_dict()
+        # global_controls = self.controls_global.state_dict()
+        # global_model = self.global_model.state_dict()
+        #
+        # local_controls = self.controls_local.state_dict()
+        # for param in local_controls:
+        #     local_controls[param] = local_controls[param] - global_controls[param] + 1 / (
+        #             self.local_epochs * self.cur_lr) * (global_model[param] - local_model[param])
+        # self.controls_local.load_state_dict(local_controls)
 
-        local_controls = self.controls_local.state_dict()
-        for param in local_controls:
-            local_controls[param] = local_controls[param] - global_controls[param] + 1 / (
-                        self.local_epochs * self.cur_lr) * (global_model[param] - local_model[param])
-        self.controls_local.load_state_dict(local_controls)
+        for ci, c, x, yi in zip(self.client_c, self.global_c, self.global_model.parameters(),
+                                self.local_model.parameters()):
+            ci.data = ci - c + 1 / (self.local_epochs * self.cur_lr) * (x - yi)
 
     def delta_yc(self):
         """
         计算模型参数和控制变量的变化量, 对应论文算法1的第13行
         @return:
         """
-        global_controls = self.controls_global.state_dict()
-        global_model = self.global_model.state_dict()
-        local_model = self.local_model.state_dict()
+        # global_controls = self.controls_global.state_dict()
+        # global_model = self.global_model.state_dict()
+        # local_model = self.local_model.state_dict()
+        #
+        # delta_model = copy.deepcopy(local_model)  # 模型参数的变化量
+        # delta_controls = copy.deepcopy(local_model)  # 控制参数的变化量
+        # for param in delta_model:
+        #     delta_model[param] = 0.0
+        #     delta_controls[param] = 0.0
+        # for param in local_model:
+        #     delta_model[param] = local_model[param] - global_model[param]
+        #     delta_controls[param] = -global_controls[param] + 1 / (self.local_epochs * self.cur_lr) * (
+        #             global_model[param] - local_model[param])
+        # return delta_model, delta_controls
+        delta_y = []
+        delta_c = []
+        for c, x, yi in zip(self.global_c, self.global_model.parameters(), self.local_model.parameters()):
+            delta_y.append(yi - x)
+            delta_c.append(- c + 1 / (self.local_epochs * self.cur_lr) * (x - yi))
 
-        delta_model = copy.deepcopy(local_model)  # 模型参数的变化量
-        delta_controls = copy.deepcopy(local_model)  # 控制参数的变化量
-        for param in delta_model:
-            delta_model[param] = 0.0
-            delta_controls[param] = 0.0
-        for param in local_model:
-            delta_model[param] = local_model[param] - global_model[param]
-            delta_controls[param] = -global_controls[param] + 1 / (self.local_epochs * self.cur_lr) * (
-                        global_model[param] - local_model[param])
-        return delta_model, delta_controls
+        return delta_y, delta_c
 
     def train(self, task_id):
         bptt = True if self.args.experiment_name.endswith('bptt') else False  # 是否是bptt实验
@@ -100,7 +149,6 @@ class clientSCAFFOLD(Client):
         # --------------------------------------------------------------------------------------------------------------
         # 开启模型训练模式
         self.local_model.train()
-        self.controls_local = copy.deepcopy(self.local_model)
 
         if task_id != 0:
             self.local_model.fix_bn()
@@ -110,10 +158,9 @@ class clientSCAFFOLD(Client):
         train_loss = 0
         batch_idx = 0
 
-        global_controls = self.controls_global.state_dict()
-        local_controls = self.controls_local.state_dict()
-
         start_time = time.time()
+
+        self.update_c_before_train()  # 更新控制参数
         # 本地轮次的操作
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
@@ -150,13 +197,6 @@ class clientSCAFFOLD(Client):
                     if not self.args.online_update:
                         self.optimizer.step()
 
-                    # 更新本地模型参数
-                    local_model = self.local_model.state_dict()
-                    for param in local_model:
-                        local_model[param] = local_model[param] - self.cur_lr * (
-                                    global_controls[param] - local_controls[param])
-                        self.local_model.load_state_dict(local_model)
-
                     train_loss += total_loss.item() * label.numel()
                     out = total_fr
                 elif bptt:
@@ -171,13 +211,6 @@ class clientSCAFFOLD(Client):
                     loss = self.loss(out, label)
                     loss.backward()
                     self.optimizer.step()
-
-                    # 更新本地模型参数
-                    local_model = self.local_model.state_dict()
-                    for param in local_model:
-                        local_model[param] = local_model[param] - self.cur_lr * (
-                                    global_controls[param] - local_controls[param])
-                        self.local_model.load_state_dict(local_model)
 
                     reset_net(self.local_model)
                     train_loss += loss.item() * label.numel()
@@ -195,13 +228,6 @@ class clientSCAFFOLD(Client):
                     loss = self.loss(out, label)
                     loss.backward()
                     self.optimizer.step()
-
-                    # 更新本地模型参数
-                    local_model = self.local_model.state_dict()
-                    for param in local_model:
-                        local_model[param] = local_model[param] - self.cur_lr * (
-                                    global_controls[param] - local_controls[param])
-                        self.local_model.load_state_dict(local_model)
 
                     train_loss += loss.item() * label.numel()
 
@@ -238,7 +264,7 @@ class clientSCAFFOLD(Client):
 
         self.lr_scheduler.step()  # 学习率调度器更新
 
-        self.update_c()  # 更新控制参数
+        self.update_c_after_train()  # 更新控制参数
 
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
@@ -289,7 +315,7 @@ class clientSCAFFOLD(Client):
                     local_model = self.local_model.state_dict()
                     for param in local_model:
                         local_model[param] = local_model[param] - self.cur_lr * (
-                                    global_controls[param] - local_controls[param])
+                                global_controls[param] - local_controls[param])
                         self.local_model.load_state_dict(local_model)
 
                     train_loss += loss.item() * label.numel()
@@ -318,4 +344,4 @@ class clientSCAFFOLD(Client):
                     bar.next()
             bar.finish()
             self.lr_scheduler.step()
-            self.update_c()  # 更新控制参数
+            self.update_c_after_train()  # 更新控制参数

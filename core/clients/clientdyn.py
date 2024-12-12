@@ -6,6 +6,7 @@ import time
 from collections import OrderedDict
 
 import torch
+from overrides import overrides
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -19,9 +20,11 @@ class clientDyn(Client):
         self.alpha = args.FedDyn_alpha
 
         self.global_model_vector = None
+
         self.layer_index_map = None
         self.grad = None
 
+    @overrides
     def set_parameters(self, model):
         """
         设置参数
@@ -32,6 +35,7 @@ class clientDyn(Client):
             old_param.data = new_param.data.clone()
         self.global_model_vector = torch.cat([param.view(-1) for param in model.parameters()], dim=0)
 
+    @overrides
     def train(self, task_id):
         bptt = True if self.args.experiment_name.endswith('bptt') else False  # 是否是bptt实验
         ottt = True if self.args.experiment_name.endswith('ottt') else False  # 是否是ottt实验
@@ -190,6 +194,7 @@ class clientDyn(Client):
         self.train_time_cost['total_cost'] += time.time() - start_time
         self.train_time_cost['num_rounds'] += 1
 
+    @overrides
     def replay(self, tasks_learned):
         self.local_model.train()
         self.local_model.fix_bn()
@@ -261,11 +266,10 @@ class clientDyn(Client):
         按照算法更新旧的grad
         @return:
         """
-
+        # 获取当前模型相关信息 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         # 获取当前本地模型
         current_local_model = copy.deepcopy(self.local_model)
-
-        # 通过有序字典存放模型（层名称：参数）
+        # 通过有序字典存放模型
         layer_index_map_new = OrderedDict()
         grad_new = []
         start_index = 0
@@ -279,7 +283,7 @@ class clientDyn(Client):
 
         # 更新self.grad >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         if self.grad is not None:
-            layers = layer_index_map_new.keys()
+            layers = self.layer_index_map.keys()
             for name, param in current_local_model.named_parameters():
                 if name in layers:
                     index_new, index_old = layer_index_map_new[name], self.layer_index_map[name]

@@ -4,12 +4,15 @@
 import copy
 import os
 import time
+from collections import OrderedDict
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
-from ..clients.clientscaffold import clientSCAFFOLD
-from ..servers.serverbase import Server
+from core.clients.clientscaffold import clientSCAFFOLD
+from core.servers.serverbase import Server
 
 __all__ = ['SCAFFOLD']
 
@@ -18,9 +21,11 @@ class SCAFFOLD(Server):
     def __init__(self, args, xtrain, ytrain, xtest, ytest, taskcla, model):
         super().__init__(args, xtrain, ytrain, xtest, ytest, taskcla, model)
         self.set_clients(clientSCAFFOLD, self.trainsets, taskcla, model)
-        self.global_lr = args.SCAFFOLD_eta              # 全局学习率
-        self.global_controls = []                       # 全局控制变量
-        
+        # 全局学习率
+        self.global_lr = args.SCAFFOLD_eta
+        # 全局控制变量
+        self.global_c = None
+        self.layer_param_num_map = None
 
     def send_models(self):
         """
@@ -32,34 +37,25 @@ class SCAFFOLD(Server):
 
         for client in self.clients:
             start_time = time.time()
-            client.set_parameters(self.global_model, self.global_controls)
+            client.set_parameters(self.global_model, self.global_c)
             client.send_time_cost['num_rounds'] += 1
             client.send_time_cost['total_cost'] += 2 * (time.time() - start_time)
 
-    def aggregate_parameters(self, delta_model, delta_controls):
+    def aggregate_parameters(self):
         """
         SCAFFOLD聚合参数, 对应论文算法1的16-17行
         @return:
         """
-        global_model = self.global_model.state_dict()
-        global_controls = self.global_controls.state_dict()
-        
-        # 计算聚合后的全局模型和控制参数
+        global_model = copy.deepcopy(self.global_model)
+        global_c = copy.deepcopy(self.global_c)
         for idx in self.received_info['client_ids']:
-            delta_yi, delta_c = self.clients[idx].delta_yc()
-            for param in global_model:
-                delta_model[param] += delta_yi[param]
-                delta_controls[param] += delta_c[param]
-
-        for param in global_model:
-            delta_model[param] == delta_yi[param] / self.n_client
-            delta_controls[param] == delta_controls[param] / self.n_client
-            
-            global_model[param] += self.global_lr * delta_model[param]
-            global_controls[param] += delta_controls[param]
-        
-        self.global_model.load_state_dict(global_model)
-        self.global_controls.load_state_dict(global_controls)
+            dy, dc = self.clients[idx].delta_yc()
+            for server_param, client_param in zip(global_model.parameters(), dy):
+                server_param.data += client_param.data.clone() / self.n_client * self.global_lr
+            for server_param, client_param in zip(global_c, dc):
+                server_param.data += client_param.data.clone() / self.n_client
+        self.global_model = global_model
+        self.global_c = global_c
 
     def execute(self):
         self.prepare_hlop_variable()
@@ -79,27 +75,20 @@ class SCAFFOLD(Server):
 
             self.add_subspace_and_classifier(n_task_class, task_count)
 
-            self.global_controls = copy.deepcopy(self.global_model)         # 全局控制参数
-            delta_model = self.global_model.state_dict()                    # 记录全局模型的变化
-            delta_controls = self.global_model.state_dict()                 # 记录全局控制参数的变化
-
             for client in self.clients:
                 if self.args.use_replay:
-                    client.set_replay_data(task_id, n_task_class)           # 如果replay，设置replay的数据
-                client.set_optimizer(task_id, False)                        # 客户端设置优化器
-                client.set_learning_rate_scheduler(False)                   # 客户端设置学习率
+                    client.set_replay_data(task_id, n_task_class)  # 如果replay，设置replay的数据
+                client.set_optimizer(task_id, False)  # 客户端设置优化器
+                client.set_learning_rate_scheduler(False)  # 客户端设置学习率
 
             for global_round in range(1, self.global_rounds + 1):
-                for param in delta_model:
-                    delta_model[param]  = 0.0
-                    delta_controls[param] = 0.0
-
-                self.select_clients(task_id)                                            # 挑选合适客户端
-                self.send_models()                                                      # 服务器向选中的客户端发放全局模型
-                for client in self.clients:                                             # 选中的客户端进行训练
+                self.update_global_control()
+                self.select_clients(task_id)  # 挑选合适客户端
+                self.send_models()  # 服务器向选中的客户端发放全局模型
+                for client in self.clients:  # 选中的客户端进行训练
                     client.train(task_id)
-                self.receive_models()                                                   # 服务器接收训练后的客户端模型
-                self.aggregate_parameters(delta_model, delta_controls)                  # 服务器聚合全局模型
+                self.receive_models()  # 服务器接收训练后的客户端模型
+                self.aggregate_parameters()  # 服务器聚合全局模型
 
                 print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
                 print("\033[93mEvaluating\033[0m")
@@ -125,16 +114,12 @@ class SCAFFOLD(Server):
                 print('memory replay\n')
 
                 for replay_global_round in range(1, self.replay_global_rounds + 1):
-                    for param in delta_model:
-                        delta_model[param]  = 0.0
-                        delta_controls[param] = 0.0
-
                     self.select_clients(task_id)
                     self.send_models()
                     for client in self.clients:
                         client.replay(task_learned)
                     self.receive_models()
-                    self.aggregate_parameters(delta_model, delta_controls)
+                    self.aggregate_parameters()
 
                 # 保存准确率
                 jj = 0
@@ -150,3 +135,36 @@ class SCAFFOLD(Server):
 
             task_count += 1
 
+    def update_global_control(self):
+        # 获取当前本地模型
+        current_local_model = copy.deepcopy(self.global_model)
+
+        # 通过有序字典存放模型（层名称：参数）
+        layer_param_num_map_new = OrderedDict()
+        global_c_new = []
+        start_index = 0
+        for name, param in current_local_model.named_parameters():
+            param_num = len(param.view(-1))
+            layer_param_num_map_new[name] = param_num
+            global_c_new.append(torch.zeros_like(param))
+            start_index += param_num
+
+        if self.global_c is not None:
+            layers = self.layer_param_num_map.keys()
+            for idx, (name, param) in enumerate(current_local_model.named_parameters()):
+                if name in layers:
+                    # 如果对应层的参数数量相等，那么就直接替换
+                    if layer_param_num_map_new[name] == self.layer_param_num_map[name]:
+                        global_c_new[idx] = self.global_c[idx]
+                    # 如果对应层的新参数数量大于旧参数数量，那么就进行填充
+                    if layer_param_num_map_new[name] > self.layer_param_num_map[name]:
+                        param_temp_new, param_temp_old = global_c_new[idx], self.global_c[idx]
+                        m, n = param_temp_new.shape[0], param_temp_new.shape[1]
+                        a, b = param_temp_old.shape[0], param_temp_old.shape[1]
+                        padding_row = m - a
+                        padding_col = n - b
+                        param_temp = F.pad(param_temp_old, (0, padding_col, 0, padding_row))
+                        global_c_new[idx] = param_temp
+
+        self.global_c = global_c_new
+        self.layer_param_num_map = layer_param_num_map_new

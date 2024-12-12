@@ -58,11 +58,6 @@ class Server(object):
         self.logs_path = os.path.join(self.root_path, 'logs')
         self.models_path = os.path.join(self.root_path, 'models')
 
-        # SCAFFOLD参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        self.global_controls = []
-        for param in self.global_model.parameters():
-            self.global_controls.append(torch.zeros_like(param))
-
     # ------------------------------------------------------------------------------------------------------------------
     # 设置相关客户端操作
     # ------------------------------------------------------------------------------------------------------------------

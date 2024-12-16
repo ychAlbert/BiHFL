@@ -3,7 +3,6 @@
 # @Description : FedAvg算法的客户端类
 import time
 
-from overrides import overrides
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -17,21 +16,11 @@ class clientAVG(Client):
     def __init__(self, args, id, trainset, taskcla, model):
         super().__init__(args, id, trainset, taskcla, model)
 
-    @overrides
     def set_parameters(self, model):
-        """
-        根据接收到的模型参数设置相关参数
-        :param model: 接收到的模型
-        :return:
-        """
-        for old_param, new_param in zip(self.local_model.parameters(), model.parameters()):
-            old_param.data = new_param.data.clone()
+        for param_old, param_new in zip(self.local_model.parameters(), model.parameters()):
+            param_old.data = param_new.data.clone()
 
-    @overrides
-    def train(self, task_id):
-        bptt = True if self.args.experiment_name.endswith('bptt') else False        # 是否是bptt实验
-        ottt = True if self.args.experiment_name.endswith('ottt') else False        # 是否是ottt实验
-
+    def train(self, task_id: int, bptt: bool, ottt: bool):
         # 数据集相关内容 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         trainset = self.trainset[f'task {task_id}']
         trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=True, drop_last=False)
@@ -52,13 +41,8 @@ class clientAVG(Client):
         if task_id != 0:
             self.local_model.fix_bn()
 
-        n_traindata = 0
-        train_acc = 0
-        train_loss = 0
         batch_idx = 0
 
-        # 开始时间
-        start_time = time.time()
         # 本地轮次的操作
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
@@ -92,7 +76,6 @@ class clientAVG(Client):
                             self.optimizer.step()
                     if not self.args.online_update:
                         self.optimizer.step()
-                    train_loss += total_loss.item() * label.numel()
                     out = total_fr
 
                 elif bptt:
@@ -108,7 +91,6 @@ class clientAVG(Client):
                     loss.backward()
                     self.optimizer.step()
                     reset_net(self.local_model)
-                    train_loss += loss.item() * label.numel()
 
                 else:
                     data = data.unsqueeze(1)
@@ -128,15 +110,11 @@ class clientAVG(Client):
                     loss.backward()
                     # 参数更新
                     self.optimizer.step()
-                    train_loss += loss.item() * label.numel()
 
                 prec1, prec5 = accuracy(out.data, label.data, topk=(1, 5))
                 losses.update(loss, data.size(0))
                 top1.update(prec1.item(), data.size(0))
                 top5.update(prec5.item(), data.size(0))
-
-                n_traindata += label.numel()
-                train_acc += (out.argmax(1) == label).float().sum().item()
 
                 batch_time.update(time.time() - end)
                 end = time.time()
@@ -155,16 +133,8 @@ class clientAVG(Client):
                 bar.next()
         bar.finish()
         self.save_local_model(str(time.time()))
-
-        train_loss /= n_traindata
-        train_acc /= n_traindata
-
         self.lr_scheduler.step()
 
-        self.train_time_cost['total_cost'] += time.time() - start_time
-        self.train_time_cost['num_rounds'] += 1
-
-    @overrides
     def replay(self, tasks_learned):
         self.local_model.train()
         self.local_model.fix_bn()
@@ -180,7 +150,8 @@ class clientAVG(Client):
             top1 = AverageMeter()
             top5 = AverageMeter()
             end = time.time()
-            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, task), max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
+            bar = Bar('Client {:^3d} Replaying Task {:^2d}'.format(self.id, task),
+                      max=((n_replay_trainset - 1) // self.replay_batch_size + 1))
 
             batch_idx = 0
 

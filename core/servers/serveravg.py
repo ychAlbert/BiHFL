@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Description : FedAvg算法的服务器类
-import copy
 import os
 
 import numpy as np
@@ -19,7 +18,12 @@ class FedAvg(Server):
         self.set_clients(clientAVG, self.trainsets, taskcla, model)
 
     def execute(self):
-        self.prepare_hlop_variable()
+        # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）>>>>>>>>>>>>>>>>>>>>>>>>>>
+        bptt = True if self.args.experiment_name.endswith('bptt') else False
+        ottt = True if self.args.experiment_name.endswith('ottt') else False
+        if bptt or ottt:
+            self.args.use_replay = False
+
         task_learned = []
         task_count = 0
 
@@ -43,12 +47,12 @@ class FedAvg(Server):
                 client.set_learning_rate_scheduler(False)
 
             for global_round in range(1, self.global_rounds + 1):
-                self.select_clients(task_id)                    # 挑选合适客户端
-                self.send_models()                              # 服务器向选中的客户端发放全局模型
-                for client in self.clients:                     # 选中的客户端进行训练
-                    client.train(task_id)
-                self.receive_models()                           # 服务器接收训练后的客户端模型
-                self.aggregate_parameters()                     # 服务器聚合全局模型
+                self.select_clients(task_id)  # 挑选合适客户端
+                self.send_models()  # 服务器向选中的客户端发放全局模型
+                for client in self.clients:  # 选中的客户端进行训练
+                    client.train(task_id, bptt, ottt)
+                self.receive_models()  # 服务器接收训练后的客户端模型
+                self.aggregate_parameters()  # 服务器聚合全局模型
 
                 print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
                 print("\033[93mEvaluating\033[0m")
@@ -79,7 +83,6 @@ class FedAvg(Server):
                 for replay_global_round in range(1, self.replay_global_rounds + 1):
                     self.select_clients(task_id)
                     self.send_models()
-
                     for client in self.clients:
                         client.replay(task_learned)
                     self.receive_models()
@@ -106,10 +109,12 @@ class FedAvg(Server):
         """
         # 断言客户端上传的模型数量不为零
         assert (len(self.received_info['client_models']) > 0)
+
         # 将全局模型的参数值清空
         for param in self.global_model.parameters():
             param.data.zero_()
+
         # 获取全局模型的参数值
         for weight, model in zip(self.received_info['client_weights'], self.received_info['client_models']):
-            for server_param, client_param in zip(self.global_model.parameters(), model.parameters()):
-                server_param.data += client_param.data.clone() * weight
+            for param_global, param_local in zip(self.global_model.parameters(), model.parameters()):
+                param_global.data += param_local.data.clone() * weight

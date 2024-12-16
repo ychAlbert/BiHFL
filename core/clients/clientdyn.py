@@ -6,7 +6,6 @@ import time
 from collections import OrderedDict
 
 import torch
-from overrides import overrides
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -24,7 +23,6 @@ class clientDyn(Client):
         self.layer_index_map = None
         self.grad = None
 
-    @overrides
     def set_parameters(self, model):
         """
         设置参数
@@ -35,11 +33,7 @@ class clientDyn(Client):
             old_param.data = new_param.data.clone()
         self.global_model_vector = torch.cat([param.view(-1) for param in model.parameters()], dim=0)
 
-    @overrides
-    def train(self, task_id):
-        bptt = True if self.args.experiment_name.endswith('bptt') else False  # 是否是bptt实验
-        ottt = True if self.args.experiment_name.endswith('ottt') else False  # 是否是ottt实验
-
+    def train(self, task_id: int, bptt: bool, ottt: bool):
         # 数据集相关内容 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         trainset = self.trainset[f'task {task_id}']
         trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=True, drop_last=False)
@@ -191,10 +185,7 @@ class clientDyn(Client):
             v1 = torch.cat([p.view(-1) for p in self.local_model.parameters()], dim=0).detach()
             self.grad = self.grad - self.alpha * (v1 - self.global_model_vector)
 
-        self.train_time_cost['total_cost'] += time.time() - start_time
-        self.train_time_cost['num_rounds'] += 1
 
-    @overrides
     def replay(self, tasks_learned):
         self.local_model.train()
         self.local_model.fix_bn()

@@ -60,45 +60,44 @@ class Client(object):
                 self.has_BatchNorm = True
                 break
 
-        self.train_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
-        self.send_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
-
         self.root_path = os.path.join(args.root_path, 'Client', f'id_{self.id}')
         self.logs_path = os.path.join(self.root_path, 'logs')
         self.models_path = os.path.join(self.root_path, 'models')
 
-    def set_parameters(self, model):
+    def set_parameters(self, **kwargs):
         """
-        根据接收到的模型参数设置本地模型参数
+        根据相关参数设置本地相关参数
         Args:
-            model: 接收到的模型
+            **kwargs: 相关参数
 
         Returns:
 
         """
         pass
 
-    def set_optimizer(self, task_id: int, for_replaying: bool):
+    def set_optimizer(self, task_id: int, replay: bool):
         """
         根据任务的id、实验的名称和是否重播来设置优化器
-        @param task_id: 任务的id
-        @param for_replaying: 为了重播
-        @return:
+        Args:
+            task_id: 任务的id
+            replay: 是否重放
+
+        Returns:
+
         """
-        # 获取本地模型参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        # 获取本地模型参数（除了hlop层和神经元层） >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         params = []
-        for name, p in self.local_model.named_parameters():
-            if 'hlop' not in name:
+        for name, param in self.local_model.named_parameters():
+            if 'hlop' not in name:  # 如果该层不是hlop模块
                 if task_id != 0:
-                    if len(p.size()) != 1:
-                        params.append(p)
+                    if len(param.size()) != 1:
+                        params.append(param)
                 else:
-                    params.append(p)
-        # 获取本地模型参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+                    params.append(param)
 
         if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
             # 如果实验的名称是pmnist，设置replay=True才能真正重放
-            if for_replaying and self.args.experiment_name == 'pmnist':
+            if replay and self.args.experiment_name == 'pmnist':
                 if self.args.opt == 'SGD':
                     self.optimizer = torch.optim.SGD(params, lr=self.replay_lr)
                     self.cur_lr = self.replay_lr
@@ -117,7 +116,7 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.opt)
         elif self.args.experiment_name == 'cifar':  # cifar 实验
-            if for_replaying:  # 如果重放
+            if replay:  # 如果重放
                 if self.args.opt == 'SGD':
                     self.optimizer = torch.optim.SGD(params, lr=self.replay_lr, momentum=self.momentum)
                     self.cur_lr = self.replay_lr
@@ -136,7 +135,7 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.opt)
         elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
-            if for_replaying:
+            if replay:
                 if self.args.opt == 'SGD':
                     self.optimizer = torch.optim.SGD(params, lr=self.replay_lr, momentum=self.momentum)
                     self.cur_lr = self.replay_lr
@@ -164,7 +163,7 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.opt)
         elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
-            if for_replaying:  # 如果重放
+            if replay:  # 如果重放
                 if self.args.opt == 'SGD':
                     self.optimizer = torch.optim.SGD(params, lr=self.replay_lr, momentum=self.momentum)
                     self.cur_lr = self.replay_lr
@@ -192,15 +191,18 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.opt)
 
-    def set_learning_rate_scheduler(self, for_replaying: bool):
+    def set_learning_rate_scheduler(self, replay: bool):
         """
         根据实验的名称和是否重播来设置优化器
-        @param for_replaying: 为了重播
-        @return:
+        Args:
+            replay: 是否重放
+
+        Returns:
+
         """
         if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
             # 如果实验的名称是pmnist，设置replay=True才能真正重放
-            if for_replaying and self.args.experiment_name == 'pmnist':
+            if replay and self.args.experiment_name == 'pmnist':
                 if self.args.lr_scheduler == 'StepLR':
                     self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
                                                                         step_size=self.StepLR_step_size,
@@ -224,7 +226,7 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.lr_scheduler)
         elif self.args.experiment_name == 'cifar':  # cifar 实验
-            if for_replaying:
+            if replay:
                 if self.args.lr_scheduler == 'StepLR':
                     self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
                                                                         step_size=self.StepLR_step_size,
@@ -248,7 +250,7 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.lr_scheduler)
         elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
-            if for_replaying:
+            if replay:
                 if self.args.lr_scheduler == 'StepLR':
                     self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
                                                                         step_size=self.StepLR_step_size,
@@ -272,7 +274,7 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.lr_scheduler)
         elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
-            if for_replaying:
+            if replay:
                 if self.args.lr_scheduler == 'StepLR':
                     self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
                                                                         step_size=self.StepLR_step_size,
@@ -325,21 +327,40 @@ class Client(object):
         replay_data = torch.stack(replay_data, dim=0)
         replay_label = torch.stack(replay_label, dim=0)
 
-        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data,
-                                                                 labels=replay_label,
-                                                                 n_class=n_task_class)
+        self.replay_trainset[f'task {task_id}'] = GeneralDataset(data=replay_data, labels=replay_label, n_class=n_task_class)
 
-    def train(self, task_id):
+    def train(self, task_id: int, bptt: bool, ottt: bool):
+        """
+        训练过程
+        Args:
+            task_id: 训练任务id
+            bptt: 是否为BPTT训练方式
+            ottt: 是否为OTTT训练方式
+
+        Returns:
+
+        """
         pass
 
-    def replay(self, tasks_learned):
+    def replay(self, tasks_learned: list):
+        """
+        重放过程
+        Args:
+            tasks_learned: 需要重放的任务id的列表
+
+        Returns:
+
+        """
         pass
 
     def save_local_model(self, model_name):
         """
         保存本地模型
-        :param model_name: 模型名称（不需要绝对/相对路径）
-        :return:
+        Args:
+            model_name: 模型名称（不需要绝对/相对路径）
+
+        Returns:
+
         """
         if not os.path.exists(self.models_path):
             os.makedirs(self.models_path)
@@ -348,8 +369,11 @@ class Client(object):
     def load_local_model(self, model_name):
         """
         加载本地模型
-        :param model_name: 模型名称（不需要绝对/相对路径）
-        :return:
+        Args:
+            model_name:
+
+        Returns:
+
         """
         model_abs_path = os.path.join(self.models_path, model_name)
         assert os.path.exists(model_abs_path)

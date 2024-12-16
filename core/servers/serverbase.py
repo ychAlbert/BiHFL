@@ -50,13 +50,33 @@ class Server(object):
 
         self.received_info = {}
 
-        self.hlop_out_num = []
-        self.hlop_out_num_inc = []
-        self.hlop_out_num_inc1 = []
-
         self.root_path = os.path.join(args.root_path, 'Server')
         self.logs_path = os.path.join(self.root_path, 'logs')
         self.models_path = os.path.join(self.root_path, 'models')
+
+        """
+        持续学习相关参数
+        """
+        # 根据实验名获得hlop相关参数
+        if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
+            # 初始状态下每个子空间的神经元数量
+            self.hlop_out_num = [80, 200, 100]
+            # 在每个任务学习时，增加的子空间的输出维度
+            self.hlop_out_num_inc = [70, 70, 70]
+        elif self.args.experiment_name == 'cifar':  # cifar 实验
+            self.hlop_out_num = [6, 100, 200]
+            self.hlop_out_num_inc = [2, 20, 40]
+        elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
+            self.hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20], [360, 360],
+                                 [360, 720, 40], [720, 720]]
+            self.hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4],
+                                     [48, 48]]
+            self.hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
+        elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
+            self.hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
+                                 [200, 200, 16], [200, 200]]
+            self.hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
+                                     [200, 200, 16], [200, 200]]
 
     # ------------------------------------------------------------------------------------------------------------------
     # 设置相关客户端操作
@@ -86,10 +106,7 @@ class Server(object):
         # 断言服务器的客户端数不为零
         assert (len(self.selected_clients) > 0)
         for client in self.selected_clients:
-            start_time = time.time()
             client.set_parameters(self.global_model)
-            client.send_time_cost['total_cost'] += 2 * (time.time() - start_time)
-            client.send_time_cost['num_rounds'] += 1
 
     # 从客户端接收训练后的本地模型
     def receive_models(self):
@@ -200,34 +217,6 @@ class Server(object):
         print('Test Accuracy: {:.4f}    Test Loss: {:.4f}'.format(test_acc, test_loss))
         return test_loss, test_acc
 
-    def prepare_hlop_variable(self):
-        # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）
-        bptt = True if self.args.experiment_name.endswith('bptt') else False
-        ottt = True if self.args.experiment_name.endswith('ottt') else False
-
-        if bptt or ottt:
-            self.args.use_replay = False
-
-        # 根据实验名获得hlop相关参数
-        if self.args.experiment_name.startswith('pmnist'):  # pmnist/pmnist_bptt/pmnist_ottt 实验
-            # 初始状态下每个子空间的神经元数量
-            self.hlop_out_num = [80, 200, 100]
-            # 在每个任务学习时，增加的子空间的输出维度
-            self.hlop_out_num_inc = [70, 70, 70]
-        elif self.args.experiment_name == 'cifar':  # cifar 实验
-            self.hlop_out_num = [6, 100, 200]
-            self.hlop_out_num_inc = [2, 20, 40]
-        elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
-            self.hlop_out_num = [24, [90, 90], [90, 90], [90, 180, 10], [180, 180], [180, 360, 20], [360, 360],
-                                 [360, 720, 40], [720, 720]]
-            self.hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4],
-                                     [48, 48]]
-            self.hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
-        elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
-            self.hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
-                                 [200, 200, 16], [200, 200]]
-            self.hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
-                                     [200, 200, 16], [200, 200]]
 
     def add_subspace_and_classifier(self, n_task_class, task_count):
         """

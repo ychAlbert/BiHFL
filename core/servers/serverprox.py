@@ -16,7 +16,11 @@ class FedProx(Server):
         self.set_clients(clientProx, self.trainsets, taskcla, model)
 
     def execute(self):
-        self.prepare_hlop_variable()
+        # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）>>>>>>>>>>>>>>>>>>>>>>>>>>
+        bptt = True if self.args.experiment_name.endswith('bptt') else False
+        ottt = True if self.args.experiment_name.endswith('ottt') else False
+        if bptt or ottt:
+            self.args.use_replay = False
 
         task_learned = []
         task_count = 0
@@ -43,7 +47,7 @@ class FedProx(Server):
                 self.select_clients(task_id)                    # 挑选合适客户端
                 self.send_models()                              # 服务器向选中的客户端发放全局模型
                 for client in self.clients:                     # 选中的客户端进行训练
-                    client.train(task_id)
+                    client.train(task_id, bptt, ottt)
                 self.receive_models()                           # 服务器接收训练后的客户端模型
                 self.aggregate_parameters()                     # 服务器聚合全局模型
 

@@ -20,10 +20,7 @@ class clientMOON(Client):
         self.tau = args.MOON_tau
         self.mu = args.MOON_mu
 
-    def train(self, task_id):
-        bptt = True if self.args.experiment_name.endswith('bptt') else False  # 是否是bptt实验
-        ottt = True if self.args.experiment_name.endswith('ottt') else False  # 是否是ottt实验
-
+    def train(self, task_id: int, bptt: bool, ottt: bool):
         # 数据集相关内容 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         trainset = self.trainset[f'task {task_id}']
         trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=True, drop_last=False)

@@ -169,36 +169,6 @@ class CNN(nn.Module):
             out = rate_spikes(out, self.timesteps)
         return out_before_clf, out
 
-    def forward_features(self, x):
-        inputs = torch.cat([x[:, _, :, :, :] for _ in range(self.timesteps)], 0)
-        index = 0
-        feature_list = []
-        for m in self.features:
-            if isinstance(m, Conv2dProj) or isinstance(m, LinearProj):
-                x_ = m(inputs, projection=False)
-                if self.hlop_with_wfr:
-                    # calculate weighted firing rate
-                    inputs = weight_rate_spikes(inputs, self.timesteps, self.tau, self.delta_t)
-                if isinstance(m, Conv2dProj):
-                    inputs = F.unfold(inputs, m.kernel_size, dilation=m.dilation, padding=m.padding,
-                                      stride=m.stride).transpose(1, 2)
-                    inputs = inputs.reshape(-1, inputs.shape[2])
-                feature_list.append(inputs.detach().cpu())
-                index += 1
-                inputs = x_
-            else:
-                inputs = m(inputs)
-
-        if self.share_classifier:
-            inputs = self.pool(inputs)
-            if self.hlop_with_wfr:
-                # calculate weighted firing rate
-                inputs = weight_rate_spikes(inputs, self.timesteps, self.tau, self.delta_t)
-            inputs = inputs.view(inputs.size(0), -1)
-            feature_list.append(inputs.detach().cpu())
-
-        return feature_list
-
     def add_classifier(self, num_classes):
         """
         增加分类器

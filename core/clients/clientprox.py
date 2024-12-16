@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Description : FedProx算法的客户端类
-import time
 import copy
+import time
 
-import numpy as np
 import torch
 from progress.bar import Bar
 from torch.utils.data import DataLoader
@@ -19,23 +18,17 @@ class clientProx(Client):
     def __init__(self, args, id, trainset, taskcla, model):
         super().__init__(args, id, trainset, taskcla, model)
         self.mu = args.FedProx_mu
+        self.global_params = None
 
     def set_parameters(self, model):
-        """
-        从服务器接收到全局的模型更新本地的模型
-        @param model: 全局的模型
-        @return:
-        """
-        self.global_model = copy.deepcopy(self.local_model)
-        for param, new_param, global_param in zip(self.local_model.parameters(), model.parameters(),
-                                                  self.global_model.parameters()):
-            global_param.data = new_param.data.clone()
-            param.data = new_param.data.clone()
+        # 更新全局参数
+        self.global_params = copy.deepcopy(list(model.parameters()))
 
-    def train(self, task_id):
-        bptt = True if self.args.experiment_name.endswith('bptt') else False  # 是否是bptt实验
-        ottt = True if self.args.experiment_name.endswith('ottt') else False  # 是否是ottt实验
+        # 更新本地模型参数
+        for param_old, param_new in zip(self.local_model.parameters(), model.parameters()):
+            param_old.data = param_new.data.clone()
 
+    def train(self, task_id: int, bptt: bool, ottt: bool):
         # 数据集相关内容 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         trainset = self.trainset[f'task {task_id}']
         trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=True, drop_last=False)
@@ -56,15 +49,8 @@ class clientProx(Client):
         if task_id != 0:
             self.local_model.fix_bn()
 
-        n_traindata = 0
-        train_acc = 0
-        train_loss = 0
         batch_idx = 0
 
-        samples_index = np.arange(n_trainset)
-        np.random.shuffle(samples_index)
-
-        start_time = time.time()
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
                 data, label = data.to(self.device), label.to(self.device)
@@ -91,11 +77,10 @@ class clientProx(Client):
                         else:
                             total_fr += out_fr.clone().detach()
                         # 根据FedProx论文计算loss
-                        proximal_term = 0.0
-                        for local_param, global_param in zip(self.local_model.parameters(),
-                                                             self.global_model.parameters()):
-                            proximal_term += torch.norm(local_param.data.view(-1) - global_param.data.view(-1), 2)
-                        loss = self.loss(out_fr, label) / self.timesteps + (self.mu / 2) * proximal_term
+                        loss = self.loss(out_fr, label)
+                        gm = torch.cat([param.data.view(-1) for param in self.global_params], dim=0)
+                        pm = torch.cat([param.data.view(-1) for param in self.local_model.parameters()], dim=0)
+                        loss += 0.5 * self.mu * torch.norm(gm - pm, p=2)
 
                         loss.backward()
                         total_loss += loss.detach()
@@ -103,7 +88,6 @@ class clientProx(Client):
                             self.optimizer.step()
                     if not self.args.online_update:
                         self.optimizer.step()
-                    train_loss += total_loss.item() * label.numel()
                     out = total_fr
                 elif bptt:
                     self.optimizer.zero_grad()
@@ -116,21 +100,20 @@ class clientProx(Client):
                                                      update_hlop=flag, fix_subspace_id_list=[0])
 
                     # 根据FedProx论文计算loss
-                    proximal_term = 0.0
-                    for local_param, global_param in zip(self.local_model.parameters(), self.global_model.parameters()):
-                        proximal_term += torch.norm(local_param.data.view(-1) - global_param.data.view(-1), 2)
-                    loss = self.loss(out, label) + (self.mu / 2) * proximal_term
+                    loss = self.loss(out, label)
+                    gm = torch.cat([param.data.view(-1) for param in self.global_params], dim=0)
+                    pm = torch.cat([param.data.view(-1) for param in self.local_model.parameters()], dim=0)
+                    loss += 0.5 * self.mu * torch.norm(gm - pm, p=2)
                     # loss反向传播
                     loss.backward()
                     # 参数更新
                     self.optimizer.step()
                     reset_net(self.local_model)
-                    train_loss += loss.item() * label.numel()
                 else:
                     data = data.unsqueeze(1)
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
-                    self.optimizer.zero_grad()
 
+                    self.optimizer.zero_grad()
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
                         out_, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
@@ -139,24 +122,20 @@ class clientProx(Client):
                                                      update_hlop=flag, fix_subspace_id_list=[0])
 
                     # 根据FedProx论文计算loss
-                    proximal_term = 0.0  # 近端项
-                    for local_param, global_param in zip(self.local_model.parameters(), self.global_model.parameters()):
-                        proximal_term += torch.norm(local_param.data.view(-1) - global_param.data.view(-1), 2)
-                    loss = self.loss(out, label) + (self.mu / 2) * proximal_term
+                    loss = self.loss(out, label)
+                    gm = torch.cat([param.data.view(-1) for param in self.global_params], dim=0)
+                    pm = torch.cat([param.data.view(-1) for param in self.local_model.parameters()], dim=0)
+                    loss += 0.5 * self.mu * torch.norm(gm - pm, p=2)
 
                     # loss反向传播
                     loss.backward()
                     # 参数更新
                     self.optimizer.step()
-                    train_loss += loss.item() * label.numel()
 
                 prec1, prec5 = accuracy(out.data, label.data, topk=(1, 5))
                 losses.update(loss, data.size(0))
                 top1.update(prec1.item(), data.size(0))
                 top5.update(prec5.item(), data.size(0))
-
-                n_traindata += label.numel()
-                train_acc += (out.argmax(1) == label).float().sum().item()
 
                 batch_time.update(time.time() - end)
                 end = time.time()
@@ -174,12 +153,7 @@ class clientProx(Client):
                 )
                 bar.next()
         bar.finish()
-
-        train_loss /= n_traindata
-        train_acc /= n_traindata
         self.lr_scheduler.step()
-        self.train_time_cost['total_cost'] += time.time() - start_time
-        self.train_time_cost['num_rounds'] += 1
 
     def replay(self, tasks_learned):
         self.local_model.train()
@@ -213,10 +187,11 @@ class clientProx(Client):
 
                     out_, out = self.local_model(data, task, projection=False, update_hlop=False)
                     # 根据FedProx论文计算loss
-                    proximal_term = 0.0  # 近端项
-                    for local_param, global_param in zip(self.local_model.parameters(), self.global_model.parameters()):
-                        proximal_term += torch.norm(local_param.data.view(-1) - global_param.data.view(-1), 2)
-                    loss = self.loss(out, label) + (self.mu / 2) * proximal_term
+                    loss = self.loss(out, label)
+                    gm = torch.cat([param.data.view(-1) for param in self.global_params], dim=0)
+                    pm = torch.cat([param.data.view(-1) for param in self.local_model.parameters()], dim=0)
+                    loss += 0.5 * self.mu * torch.norm(gm - pm, p=2)
+
                     loss.backward()
                     self.optimizer.step()
 
@@ -242,3 +217,5 @@ class clientProx(Client):
                     bar.next()
             bar.finish()
             self.lr_scheduler.step()
+
+

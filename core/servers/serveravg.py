@@ -56,13 +56,13 @@ class FedAvg(Server):
 
                 print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
                 print("\033[93mEvaluating\033[0m")
-                test_loss, test_acc = self.evaluate(task_id)
+                test_loss, test_acc = self.evaluate(task_id, bptt, ottt)
                 writer.add_scalar('test_loss', test_loss, global_round)
                 writer.add_scalar('test_acc', test_acc, global_round)
 
             jj = 0
             for ii in np.array(task_learned)[0:task_count + 1]:
-                _, acc_matrix[task_count, jj] = self.evaluate(ii)
+                _, acc_matrix[task_count, jj] = self.evaluate(ii, bptt, ottt)
                 jj += 1
             print('Accuracies =')
             for i_a in range(task_count + 1):
@@ -91,7 +91,7 @@ class FedAvg(Server):
                 # 保存准确率
                 jj = 0
                 for ii in np.array(task_learned)[0:task_count + 1]:
-                    _, acc_matrix[task_count, jj] = self.evaluate(ii)
+                    _, acc_matrix[task_count, jj] = self.evaluate(ii, bptt, ottt)
                     jj += 1
                 print('Accuracies =')
                 for i_a in range(task_count + 1):

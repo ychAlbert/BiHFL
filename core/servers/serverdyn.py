@@ -7,6 +7,7 @@ from collections import OrderedDict
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
 from core.clients.clientdyn import clientDyn
@@ -26,7 +27,11 @@ class FedDyn(Server):
             self.state[name] = torch.zeros_like(param.data)
 
     def execute(self):
-        self.prepare_hlop_variable()
+        # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）>>>>>>>>>>>>>>>>>>>>>>>>>>
+        bptt = True if self.args.experiment_name.endswith('bptt') else False
+        ottt = True if self.args.experiment_name.endswith('ottt') else False
+        if bptt or ottt:
+            self.args.use_replay = False
 
         task_learned = []
         task_count = 0
@@ -53,21 +58,20 @@ class FedDyn(Server):
                 self.select_clients(task_id)  # 挑选合适客户端
                 self.send_models()  # 服务器向选中的客户端发放全局模型
                 for client in self.selected_clients:  # 选中的客户端进行训练
-                    client.update_grad()
-                    client.train(task_id)
+                    client.train(task_id, bptt, ottt)
                 self.receive_models()  # 服务器接收训练后的客户端模型
                 self.update_state()
                 self.aggregate_parameters()  # 服务器聚合全局模型
 
                 print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
                 print("\033[93mEvaluating\033[0m")
-                test_loss, test_acc = self.evaluate(task_id)
+                test_loss, test_acc = self.evaluate(task_id, bptt, ottt)
                 writer.add_scalar('test_loss', test_loss, global_round)
                 writer.add_scalar('test_acc', test_acc, global_round)
 
             jj = 0
             for ii in np.array(task_learned)[0:task_count + 1]:
-                _, acc_matrix[task_count, jj] = self.evaluate(ii)
+                _, acc_matrix[task_count, jj] = self.evaluate(ii, bptt, ottt)
                 jj += 1
             print('Accuracies =')
             for i_a in range(task_count + 1):
@@ -97,7 +101,7 @@ class FedDyn(Server):
                 # 保存准确率
                 jj = 0
                 for ii in np.array(task_learned)[0:task_count + 1]:
-                    _, acc_matrix[task_count, jj] = self.evaluate(ii)
+                    _, acc_matrix[task_count, jj] = self.evaluate(ii, bptt, ottt)
                     jj += 1
                 print('Accuracies =')
                 for i_a in range(task_count + 1):
@@ -139,10 +143,26 @@ class FedDyn(Server):
         if self.state is not None:
             for name, param in current_global_model.named_parameters():
                 if name in self.layers:
-                    len_old = self.state[name].detach().clone().view(-1)
-                    len_new = state_new[name].detach().clone().view(-1)
-                    if len(len_old) == len(len_new):
+                    len_old = len(self.state[name].detach().clone().view(-1))
+                    len_new = len(state_new[name].detach().clone().view(-1))
+                    # 如果新旧的state大小相等，那么直接替换
+                    if len_new == len_old:
                         state_new[name] = self.state[name]
+                    # 如果新的state大于旧的state大小
+                    elif len_new > len_old and name.startswith('hlop'):
+                        param_temp_old = self.state[name].detach().clone()
+                        param_temp_new = state_new[name].detach().clone()
+                        padding_row = param_temp_new.shape[0] - param_temp_old.shape[0]
+                        padding_col = param_temp_new.shape[1] - param_temp_old.shape[1]
+                        param_temp = F.pad(param_temp_old, (0, padding_col, 0, padding_row))
+                        state_new[name] = param_temp.detach().clone()
+                    # 如果新的state小于旧的state大小
+                    elif len_new < len_old and name.startswith('hlop'):
+                        param_temp_old = self.state[name].detach().clone()
+                        param_temp_new = state_new[name].detach().clone()
+                        row = param_temp_new.shape[0]
+                        col = param_temp_new.shape[1]
+                        state_new[name] = param_temp_old[:row, :col].detach().clone()
 
         self.layers = layers_new
         self.state = state_new

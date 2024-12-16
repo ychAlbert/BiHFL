@@ -135,11 +135,7 @@ class Server(object):
         for idx, train_samples in enumerate(self.received_info['client_weights']):
             self.received_info['client_weights'][idx] = train_samples / total_client_train_samples
 
-    def evaluate(self, task_id: int):
-        # 获取实验相关参数（是否是HLOP_SNN相关实验，如果是的话，是否是bptt/ottt相关设置） >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        bptt = True if self.args.experiment_name.endswith('bptt') else False
-        ottt = True if self.args.experiment_name.endswith('ottt') else False
-
+    def evaluate(self, task_id: int, bptt: bool, ottt: bool):
         # 全局模型开启评估模式
         self.global_model.eval()
         testset = self.testset[f'task {task_id}']
@@ -216,7 +212,6 @@ class Server(object):
 
         print('Test Accuracy: {:.4f}    Test Loss: {:.4f}'.format(test_acc, test_loss))
         return test_loss, test_acc
-
 
     def add_subspace_and_classifier(self, n_task_class, task_count):
         """

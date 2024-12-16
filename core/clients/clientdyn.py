@@ -6,6 +6,7 @@ import time
 from collections import OrderedDict
 
 import torch
+import torch.nn.functional as F
 from progress.bar import Bar
 from torch.utils.data import DataLoader
 
@@ -19,9 +20,8 @@ class clientDyn(Client):
         self.alpha = args.FedDyn_alpha
 
         self.global_model_vector = None
-
-        self.layer_index_map = None
-        self.grad = None
+        self.info_map = None
+        self.grad_old = None
 
     def set_parameters(self, model):
         """
@@ -29,9 +29,56 @@ class clientDyn(Client):
         @param model: 全局模型
         @return:
         """
+        # 更新global_model_vector >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        self.global_model_vector = torch.cat([param.view(-1) for param in model.parameters()], dim=0).detach().clone()
+
+        # 获取当前模型相关信息 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        current_local_model = copy.deepcopy(self.local_model)  # 获取当前本地模型
+        info_map_new = OrderedDict()  # 通过有序字典存放信息（某一层weight的起始位置、其原始大小）
+        grad_new = []   # 存放新的梯度数据
+        start_index = 0
+        for name, param in current_local_model.named_parameters():
+            param_temp = param.view(-1)
+            if name.startswith('hlop'):
+                info_map_new[name] = [start_index, start_index + param_temp.shape[0], param.shape[0], param.shape[1]]
+            else:
+                info_map_new[name] = [start_index, start_index + param_temp.shape[0]]
+            grad_new.append(param_temp)
+            start_index += param_temp.shape[0]
+        grad_new = torch.zeros_like(torch.cat(grad_new, dim=0).detach().clone())    # 计算模型的梯度
+
+        # 更新self.grad >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        if self.grad_old is not None:
+            layers = self.info_map.keys()
+            for name, param in current_local_model.named_parameters():
+                if name in layers:
+                    info_new, info_old = info_map_new[name], self.info_map[name]
+                    # 考虑以下情况，主要考虑hlop模块相关内容
+                    differ = (info_new[1] - info_new[0]) - (info_old[1] - info_old[0])
+                    # 如果某一层的grad_new等于对应的self.grad_old，那么直接替换
+                    if differ == 0:
+                        grad_new[info_new[0]: info_new[1]] = self.grad_old[info_old[0]: info_old[1]]
+                    # 如果某一层的grad_new大于对应的self.grad_old，那么使用0进行填充
+                    elif differ > 0 and name.startswith('hlop'):
+                        param_temp_old = self.grad_old[info_old[0]: info_old[1]].view(info_old[2], info_old[3])
+                        padding_row = info_new[2] - info_old[2]
+                        padding_col = info_new[3] - info_old[3]
+                        param_temp = F.pad(param_temp_old, (0, padding_col, 0, padding_row))
+                        grad_new[info_new[0]: info_new[1]] = param_temp.view(-1)
+                    # 如果某一层的grad_new小于对应的self.grad_old，那么直接替换self.grad中的一部分
+                    elif differ < 0 and name.startswith('hlop'):
+                        param_temp_new = grad_new[info_new[0]: info_new[1]].view(info_new[2], info_new[3])
+                        padding_row = info_old[2] - info_new[2]
+                        padding_col = info_old[3] - info_new[3]
+                        param_temp = F.pad(param_temp_new, (0, padding_col, 0, padding_row))
+                        grad_new[info_new[0]: info_new[1]] = param_temp.view(-1)[info_new[0]: info_new[1]]
+
+        self.info_map = info_map_new
+        self.grad_old = grad_new.detach().clone()
+
+        # 更新本地模型参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         for old_param, new_param in zip(self.local_model.parameters(), model.parameters()):
             old_param.data = new_param.data.clone()
-        self.global_model_vector = torch.cat([param.view(-1) for param in model.parameters()], dim=0)
 
     def train(self, task_id: int, bptt: bool, ottt: bool):
         # 数据集相关内容 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -58,11 +105,6 @@ class clientDyn(Client):
         train_acc = 0
         train_loss = 0
         batch_idx = 0
-
-        start_time = time.time()
-
-        # 训练之前先更新一次old_grad，防止网络结构
-        # self.update_grad()
 
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
@@ -93,9 +135,9 @@ class clientDyn(Client):
                         loss = self.loss(out_fr, label) / self.timesteps
 
                         if self.global_model_vector is not None:
-                            v1 = torch.cat([p.view(-1) for p in self.local_model.parameters()], dim=0)
+                            v1 = torch.cat([p.view(-1) for p in self.local_model.parameters()], dim=0).detach().clone()
                             loss += self.alpha / 2 * torch.norm(v1 - self.global_model_vector, 2)
-                            loss -= torch.dot(v1, self.grad)
+                            loss -= torch.dot(v1, self.grad_old)
 
                         loss.backward()
                         total_loss += loss.detach()
@@ -120,9 +162,9 @@ class clientDyn(Client):
                     loss = self.loss(out, label)
 
                     if self.global_model_vector is not None:
-                        v1 = torch.cat([p.view(-1) for p in self.local_model.parameters()], dim=0)
+                        v1 = torch.cat([p.view(-1) for p in self.local_model.parameters()], dim=0).detach().clone()
                         loss += self.alpha / 2 * torch.norm(v1 - self.global_model_vector, 2)
-                        loss -= torch.dot(v1, self.grad)
+                        loss -= torch.dot(v1, self.grad_old)
 
                     loss.backward()
                     self.optimizer.step()
@@ -144,9 +186,9 @@ class clientDyn(Client):
                     loss = self.loss(out, label)
 
                     if self.global_model_vector is not None:
-                        v1 = torch.cat([param.view(-1) for param in self.local_model.parameters()], dim=0)
+                        v1 = torch.cat([param.view(-1) for param in self.local_model.parameters()], dim=0).detach().clone()
                         loss += self.alpha / 2 * torch.norm(v1 - self.global_model_vector, 2)
-                        loss -= torch.dot(v1, self.grad)
+                        loss -= torch.dot(v1, self.grad_old)
 
                     loss.backward()
                     self.optimizer.step()
@@ -183,8 +225,7 @@ class clientDyn(Client):
 
         if self.global_model_vector is not None:
             v1 = torch.cat([p.view(-1) for p in self.local_model.parameters()], dim=0).detach()
-            self.grad = self.grad - self.alpha * (v1 - self.global_model_vector)
-
+            self.grad_old = self.grad_old - self.alpha * (v1 - self.global_model_vector)
 
     def replay(self, tasks_learned):
         self.local_model.train()
@@ -217,10 +258,10 @@ class clientDyn(Client):
                     out_, out = self.local_model(data, replay_task, projection=False, update_hlop=False)
                     loss = self.loss(out, label)
 
-                    # if self.global_model_vector is not None:
-                    #     v1 = model_parameter_vector(self.local_model)
-                    #     loss += self.alpha / 2 * torch.norm(v1 - self.global_model_vector, 2)
-                    #     loss -= torch.dot(v1, self.old_grad)
+                    if self.global_model_vector is not None:
+                        v1 = torch.cat([param.view(-1) for param in self.local_model.parameters()], dim=0).detach().clone()
+                        loss += self.alpha / 2 * torch.norm(v1 - self.global_model_vector, 2)
+                        loss -= torch.dot(v1, self.grad_old)
 
                     loss.backward()
                     self.optimizer.step()
@@ -247,47 +288,3 @@ class clientDyn(Client):
                     bar.next()
             bar.finish()
             self.lr_scheduler.step()
-
-            # if self.global_model_vector is not None:
-            #     v1 = model_parameter_vector(self.local_model).detach()
-            #     self.old_grad = self.old_grad - self.alpha * (v1 - self.global_model_vector)
-
-    def update_grad(self):
-        """
-        按照算法更新旧的grad
-        @return:
-        """
-        # 获取当前模型相关信息 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # 获取当前本地模型
-        current_local_model = copy.deepcopy(self.local_model)
-        # 通过有序字典存放模型
-        layer_index_map_new = OrderedDict()
-        grad_new = []
-        start_index = 0
-        for name, param in current_local_model.named_parameters():
-            param_temp = param.view(-1)
-            layer_index_map_new[name] = [start_index, start_index + param_temp.shape[0]]
-            grad_new.append(param_temp)
-            start_index += param_temp.shape[0]
-        # 计算模型的梯度
-        grad_new = torch.zeros_like(torch.cat(grad_new, dim=0))
-
-        # 更新self.grad >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        if self.grad is not None:
-            layers = self.layer_index_map.keys()
-            for name, param in current_local_model.named_parameters():
-                if name in layers:
-                    index_new, index_old = layer_index_map_new[name], self.layer_index_map[name]
-                    # 考虑以下情况，主要考虑hlop模块相关内容
-                    differ = (index_new[1] - index_new[0]) - (index_old[1] - index_old[0])
-                    if differ > 0:  # 如果某一层的grad_new大于对应的self.grad，那么使用0进行填充
-                        grad_new[index_new[0]: index_new[1]] = torch.cat((self.grad[index_old[0]: index_old[1]],
-                                                                          torch.zeros(differ).to(self.grad.device)),
-                                                                         dim=0)
-                    elif differ == 0:  # 如果某一层的grad_new等于对应的self.grad，那么直接替换
-                        grad_new[index_new[0]: index_new[1]] = self.grad[index_old[0]: index_old[1]]
-                    elif differ < 0:  # 如果某一层的grad_new小于对应的self.grad，那么直接替换self.grad中的一部分
-                        grad_new[index_new[0]: index_new[1]] = self.grad[index_old[0]: index_old[1]-differ]
-
-        self.layer_index_map = layer_index_map_new
-        self.grad = grad_new.detach().clone()

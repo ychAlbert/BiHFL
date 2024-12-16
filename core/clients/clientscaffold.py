@@ -20,8 +20,7 @@ class clientSCAFFOLD(Client):
     def __init__(self, args, id, trainset, taskcla, model):
         super().__init__(args, id, trainset, taskcla, model)
         self.client_c = None  # 本地控制参数
-        self.layer_param_num_map = None
-
+        self.info_map = None
         self.global_c = None  # 全局控制参数
         self.global_model = None  # 全局模型
 
@@ -47,24 +46,24 @@ class clientSCAFFOLD(Client):
         current_local_model = copy.deepcopy(self.local_model)
 
         # 通过有序字典存放模型（层名称：参数）
-        layer_param_num_map_new = OrderedDict()
+        info_map_new = OrderedDict()
         client_c_new = []
         start_index = 0
         for name, param in current_local_model.named_parameters():
             param_num = len(param.view(-1))
-            layer_param_num_map_new[name] = param_num
+            info_map_new[name] = param_num
             client_c_new.append(torch.zeros_like(param))
             start_index += param_num
 
         if self.client_c is not None:
-            layers = self.layer_param_num_map.keys()
+            layers = self.info_map.keys()
             for idx, (name, param) in enumerate(current_local_model.named_parameters()):
                 if name in layers:
                     # 如果对应层的参数数量相等，那么就直接替换
-                    if layer_param_num_map_new[name] == self.layer_param_num_map[name]:
+                    if info_map_new[name] == self.info_map[name]:
                         client_c_new[idx] = self.client_c[idx]
                     # 如果对应层的新参数数量大于旧参数数量，那么就进行填充
-                    if layer_param_num_map_new[name] > self.layer_param_num_map[name]:
+                    if info_map_new[name] > self.info_map[name] and name.startswith('hlop'):
                         param_temp_new, param_temp_old = client_c_new[idx], self.client_c[idx]
                         m, n = param_temp_new.shape[0], param_temp_new.shape[1]
                         a, b = param_temp_old.shape[0], param_temp_old.shape[1]
@@ -72,9 +71,14 @@ class clientSCAFFOLD(Client):
                         padding_col = n - b
                         param_temp = F.pad(param_temp_old, (0, padding_col, 0, padding_row))
                         client_c_new[idx] = param_temp
+                    elif info_map_new[name] < self.info_map[name] and name.startswith('hlop'):
+                        param_temp_new, param_temp_old = client_c_new[idx], self.client_c[idx]
+                        m, n = param_temp_new.shape[0], param_temp_new.shape[1]
+                        param_temp = param_temp_old[:m, :n]
+                        client_c_new[idx] = param_temp
 
         self.client_c = client_c_new
-        self.layer_param_num_map = layer_param_num_map_new
+        self.info_map = info_map_new
 
     def update_c_after_train(self):
         """
@@ -150,12 +154,7 @@ class clientSCAFFOLD(Client):
         if task_id != 0:
             self.local_model.fix_bn()
 
-        n_traindata = 0
-        train_acc = 0
-        train_loss = 0
         batch_idx = 0
-
-        start_time = time.time()
 
         self.update_c_before_train()  # 更新控制参数
         # 本地轮次的操作
@@ -194,7 +193,6 @@ class clientSCAFFOLD(Client):
                     if not self.args.online_update:
                         self.optimizer.step()
 
-                    train_loss += total_loss.item() * label.numel()
                     out = total_fr
                 elif bptt:
                     self.optimizer.zero_grad()
@@ -210,7 +208,6 @@ class clientSCAFFOLD(Client):
                     self.optimizer.step()
 
                     reset_net(self.local_model)
-                    train_loss += loss.item() * label.numel()
                 else:
                     data = data.unsqueeze(1)
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
@@ -226,16 +223,11 @@ class clientSCAFFOLD(Client):
                     loss.backward()
                     self.optimizer.step()
 
-                    train_loss += loss.item() * label.numel()
-
                 # measure accuracy and record loss
                 prec1, prec5 = accuracy(out.data, label.data, topk=(1, 5))
                 losses.update(loss, data.size(0))
                 top1.update(prec1.item(), data.size(0))
                 top5.update(prec5.item(), data.size(0))
-
-                n_traindata += label.numel()
-                train_acc += (out.argmax(1) == label).float().sum().item()
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
@@ -256,15 +248,8 @@ class clientSCAFFOLD(Client):
                 bar.next()
         bar.finish()
 
-        train_loss /= n_traindata
-        train_acc /= n_traindata
-
         self.lr_scheduler.step()  # 学习率调度器更新
-
         self.update_c_after_train()  # 更新控制参数
-
-        self.train_time_cost['total_cost'] += time.time() - start_time
-        self.train_time_cost['num_rounds'] += 1
 
     def replay(self, tasks_learned):
         self.local_model.train()
@@ -289,8 +274,8 @@ class clientSCAFFOLD(Client):
             train_loss = 0
             batch_idx = 0
 
-            global_controls = self.controls_global.state_dict()
-            local_controls = self.controls_local.state_dict()
+            global_controls = self.global_c.state_dict()
+            local_controls = self.client_c.state_dict()
 
             for epoch in range(1, self.replay_local_epochs + 1):
                 for data, label in replay_trainloader:

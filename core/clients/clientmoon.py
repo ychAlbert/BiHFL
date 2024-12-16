@@ -20,6 +20,9 @@ class clientMOON(Client):
         self.tau = args.MOON_tau
         self.mu = args.MOON_mu
 
+        self.global_model = None
+        self.old_model = None
+
     def train(self, task_id: int, bptt: bool, ottt: bool):
         # 数据集相关内容 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         trainset = self.trainset[f'task {task_id}']
@@ -38,17 +41,12 @@ class clientMOON(Client):
         # 训练主体部分 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         # 开启模型训练模式
         self.local_model.train()
-        self.old_local_model = copy.deepcopy(self.local_model)
 
         if task_id != 0:
             self.local_model.fix_bn()
 
-        n_traindata = 0
-        train_acc = 0
-        train_loss = 0
         batch_idx = 0
 
-        start_time = time.time()
         # 本地轮次的操作
         for local_epoch in range(1, self.local_epochs + 1):
             for data, label in trainloader:
@@ -67,17 +65,17 @@ class clientMOON(Client):
                         flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                         if task_id == 0:
                             rep, out_fr = self.local_model(data, task_id, projection=False, update_hlop=flag, init=init)
-                            rep_old, out_fr_old = self.old_local_model(data, task_id, projection=False,
-                                                                       update_hlop=flag, init=init)
+                            rep_old, out_fr_old = self.old_model(data, task_id, projection=False,
+                                                                 update_hlop=flag, init=init)
                             rep_global, out_fr_global = self.global_model(data, task_id, projection=False,
                                                                           update_hlop=flag, init=init)
                         else:
                             rep, out_fr = self.local_model(data, task_id, projection=self.args.use_hlop,
                                                            proj_id_list=[0], update_hlop=flag, fix_subspace_id_list=[0],
                                                            init=init)
-                            rep_old, out_fr_old = self.old_local_model(data, task_id, projection=self.args.use_hlop,
-                                                                       proj_id_list=[0], update_hlop=flag,
-                                                                       fix_subspace_id_list=[0], init=init)
+                            rep_old, out_fr_old = self.old_model(data, task_id, projection=self.args.use_hlop,
+                                                                 proj_id_list=[0], update_hlop=flag,
+                                                                 fix_subspace_id_list=[0], init=init)
                             rep_global, out_fr_global = self.global_model(data, task_id, projection=self.args.use_hlop,
                                                                           proj_id_list=[0], update_hlop=flag,
                                                                           fix_subspace_id_list=[0], init=init)
@@ -97,7 +95,6 @@ class clientMOON(Client):
                             self.optimizer.step()
                     if not self.args.online_update:
                         self.optimizer.step()
-                    train_loss += total_loss.item() * label.numel()
                     out = total_fr
                 elif bptt:
                     self.optimizer.zero_grad()
@@ -105,14 +102,14 @@ class clientMOON(Client):
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
                         rep, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
-                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep_old, out_fr_old = self.old_model(data, task_id, projection=False, update_hlop=flag)
                         rep_global, out_fr_global = self.global_model(data, task_id, projection=False, update_hlop=flag)
                     else:
                         rep, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
                                                     update_hlop=flag, fix_subspace_id_list=[0])
-                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=self.args.use_hlop,
-                                                                   proj_id_list=[0], update_hlop=flag,
-                                                                   fix_subspace_id_list=[0])
+                        rep_old, out_fr_old = self.old_model(data, task_id, projection=self.args.use_hlop,
+                                                             proj_id_list=[0], update_hlop=flag,
+                                                             fix_subspace_id_list=[0])
                         rep_global, out_fr_global = self.global_model(data, task_id, projection=self.args.use_hlop,
                                                                       proj_id_list=[0], update_hlop=flag,
                                                                       fix_subspace_id_list=[0])
@@ -124,7 +121,6 @@ class clientMOON(Client):
                     loss.backward()
                     self.optimizer.step()
                     reset_net(self.local_model)
-                    train_loss += loss.item() * label.numel()
                 else:
                     data = data.unsqueeze(1)
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
@@ -133,14 +129,14 @@ class clientMOON(Client):
                     flag = self.args.use_hlop and (local_epoch > self.args.hlop_start_epochs)
                     if task_id == 0:
                         rep, out = self.local_model(data, task_id, projection=False, update_hlop=flag)
-                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=False, update_hlop=flag)
+                        rep_old, out_fr_old = self.old_model(data, task_id, projection=False, update_hlop=flag)
                         rep_global, out_fr_global = self.global_model(data, task_id, projection=False, update_hlop=flag)
                     else:
                         rep, out = self.local_model(data, task_id, projection=self.args.use_hlop, proj_id_list=[0],
                                                     update_hlop=flag, fix_subspace_id_list=[0])
-                        rep_old, out_fr_old = self.old_local_model(data, task_id, projection=self.args.use_hlop,
-                                                                   proj_id_list=[0], update_hlop=flag,
-                                                                   fix_subspace_id_list=[0])
+                        rep_old, out_fr_old = self.old_model(data, task_id, projection=self.args.use_hlop,
+                                                             proj_id_list=[0], update_hlop=flag,
+                                                             fix_subspace_id_list=[0])
                         rep_global, out_fr_global = self.global_model(data, task_id, projection=self.args.use_hlop,
                                                                       proj_id_list=[0], update_hlop=flag,
                                                                       fix_subspace_id_list=[0])
@@ -151,16 +147,12 @@ class clientMOON(Client):
                     loss += self.mu * torch.mean(loss_con)
                     loss.backward()
                     self.optimizer.step()
-                    train_loss += loss.item() * label.numel()
 
                 # measure accuracy and record loss
                 prec1, prec5 = accuracy(out.data, label.data, topk=(1, 5))
                 losses.update(loss, data.size(0))
                 top1.update(prec1.item(), data.size(0))
                 top5.update(prec5.item(), data.size(0))
-
-                n_traindata += label.numel()
-                train_acc += (out.argmax(1) == label).float().sum().item()
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
@@ -181,12 +173,7 @@ class clientMOON(Client):
                 bar.next()
         bar.finish()
 
-        train_loss /= n_traindata
-        train_acc /= n_traindata
         self.lr_scheduler.step()
-        self.old_local_model = copy.deepcopy(self.local_model)
-        self.train_time_cost['total_cost'] += time.time() - start_time
-        self.train_time_cost['num_rounds'] += 1
 
     def replay(self, tasks_learned):
         self.local_model.train()
@@ -222,7 +209,7 @@ class clientMOON(Client):
                     data = data.repeat(1, self.timesteps, 1, 1, 1)
 
                     rep, out = self.local_model(data, replay_task, projection=False, update_hlop=False)
-                    rep_old, out_fr_old = self.old_local_model(data, replay_task, projection=False, update_hlop=False)
+                    rep_old, out_fr_old = self.old_model(data, replay_task, projection=False, update_hlop=False)
                     rep_global, out_fr_global = self.global_model(data, replay_task, projection=False,
                                                                   update_hlop=False)
 
@@ -274,3 +261,5 @@ class clientMOON(Client):
             old_param.data = new_param.data.clone()
         # 更新本地存放的全局模型
         self.global_model = copy.deepcopy(model)
+        # 更新本地存放的本地模型
+        self.old_model = copy.deepcopy(self.local_model)

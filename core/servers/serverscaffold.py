@@ -3,7 +3,6 @@
 # @Description : SCAFFOLD算法的服务器类
 import copy
 import os
-import time
 from collections import OrderedDict
 
 import numpy as np
@@ -22,7 +21,7 @@ class SCAFFOLD(Server):
         super().__init__(args, xtrain, ytrain, xtest, ytest, taskcla, model)
         self.set_clients(clientSCAFFOLD, self.trainsets, taskcla, model)
         # 全局学习率
-        self.global_lr = args.SCAFFOLD_eta
+        self.eta = args.SCAFFOLD_eta
         # 全局控制变量
         self.global_c = None
         self.layer_param_num_map = None
@@ -36,10 +35,7 @@ class SCAFFOLD(Server):
         assert (len(self.clients) > 0)
 
         for client in self.clients:
-            start_time = time.time()
             client.set_parameters(self.global_model, self.global_c)
-            client.send_time_cost['num_rounds'] += 1
-            client.send_time_cost['total_cost'] += 2 * (time.time() - start_time)
 
     def aggregate_parameters(self):
         """
@@ -51,14 +47,18 @@ class SCAFFOLD(Server):
         for idx in self.received_info['client_ids']:
             dy, dc = self.clients[idx].delta_yc()
             for server_param, client_param in zip(global_model.parameters(), dy):
-                server_param.data += client_param.data.clone() / self.n_client * self.global_lr
+                server_param.data += client_param.data.clone() / self.n_client * self.eta
             for server_param, client_param in zip(global_c, dc):
                 server_param.data += client_param.data.clone() / self.n_client
         self.global_model = global_model
         self.global_c = global_c
 
     def execute(self):
-        self.prepare_hlop_variable()
+        # 根据实验名调整重放的决定（如果是bptt/ottt实验，那么一定不重放，其余则根据参数replay的值决定是否重放）>>>>>>>>>>>>>>>>>>>>>>>>>>
+        bptt = True if self.args.experiment_name.endswith('bptt') else False
+        ottt = True if self.args.experiment_name.endswith('ottt') else False
+        if bptt or ottt:
+            self.args.use_replay = False
 
         task_learned = []
         task_count = 0
@@ -86,19 +86,19 @@ class SCAFFOLD(Server):
                 self.select_clients(task_id)  # 挑选合适客户端
                 self.send_models()  # 服务器向选中的客户端发放全局模型
                 for client in self.clients:  # 选中的客户端进行训练
-                    client.train(task_id)
+                    client.train(task_id, bptt, ottt)
                 self.receive_models()  # 服务器接收训练后的客户端模型
                 self.aggregate_parameters()  # 服务器聚合全局模型
 
                 print(f"\n-------------Task: {task_id}     Round number: {global_round}-------------")
                 print("\033[93mEvaluating\033[0m")
-                test_loss, test_acc = self.evaluate(task_id)
+                test_loss, test_acc = self.evaluate(task_id, bptt, ottt)
                 writer.add_scalar('test_loss', test_loss, global_round)
                 writer.add_scalar('test_acc', test_acc, global_round)
 
             jj = 0
             for ii in np.array(task_learned)[0:task_count + 1]:
-                _, acc_matrix[task_count, jj] = self.evaluate(ii)
+                _, acc_matrix[task_count, jj] = self.evaluate(ii, bptt, ottt)
                 jj += 1
             print('Accuracies =')
             for i_a in range(task_count + 1):
@@ -124,7 +124,7 @@ class SCAFFOLD(Server):
                 # 保存准确率
                 jj = 0
                 for ii in np.array(task_learned)[0:task_count + 1]:
-                    _, acc_matrix[task_count, jj] = self.evaluate(ii)
+                    _, acc_matrix[task_count, jj] = self.evaluate(ii, bptt, ottt)
                     jj += 1
                 print('Accuracies =')
                 for i_a in range(task_count + 1):

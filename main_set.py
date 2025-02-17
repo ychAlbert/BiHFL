@@ -83,6 +83,7 @@ parser.add_argument('--emd', action='store_true', help='使用EMD距离分配本
 parser.add_argument('--iid', action='store_true', help='使用IID数据划分')
 parser.add_argument('--n_client', type=int, default=3, help='客户端数量')
 
+parser.add_argument('--name', type=str, default='default_name', help='结果文件的名称')
 # 实验相关设置 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 args = parser.parse_args()
@@ -130,4 +131,3 @@ if args.dirichlet:
 elif args.emd:
     print('本地训练数据集分配方式： EMD距离 {}'.format(args.emd_distance))
 print('=' * 50)
- 

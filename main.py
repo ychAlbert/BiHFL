@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Description : 程序入口
+import os
+import sys
+import csv
 from main_set import *
 from core.servers.serveravg import FedAvg
 from core.servers.serverdyn import FedDyn
@@ -10,6 +13,16 @@ from core.servers.serverscaffold import SCAFFOLD
 from core.servers.serverhifa import HIFA
 
 def run(args):
+    # 创建result文件夹
+    if not os.path.exists('result'):
+        os.makedirs('result')
+    
+    # 创建CSV文件并重定向输出
+    csv_file_path = os.path.join('result', f'{args.name}.csv')
+    csv_file = open(csv_file_path, 'w', newline='')
+    csv_writer = csv.writer(csv_file)
+    sys.stdout = csv_file
+
     # 任务描述(例如元素(0, 10)：任务0有10个类)
     taskcla = None
     # 训练集
@@ -164,6 +177,9 @@ def run(args):
         server = HIFA(args, xtrain, ytrain, xtest, ytest, taskcla, model)
 
     server.execute()
+
+    # 关闭CSV文件
+    csv_file.close()
 
 
 if __name__ == "__main__":

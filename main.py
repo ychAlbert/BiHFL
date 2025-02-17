@@ -9,7 +9,6 @@ from core.servers.serverprox import FedProx
 from core.servers.serverscaffold import SCAFFOLD
 from core.servers.serverhifa import HIFA
 
-
 def run(args):
     # 任务描述(例如元素(0, 10)：任务0有10个类)
     taskcla = None

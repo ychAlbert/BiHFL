@@ -80,6 +80,9 @@ parser.add_argument('--memory_size', type=int, default=50, help='重放的记忆
 parser.add_argument('--device_id', type=str, default="0", help='实验设备的id')
 parser.add_argument('--dirichlet', action='store_true', help='使用迪利克雷浓度分配本地数据集')
 parser.add_argument('--emd', action='store_true', help='使用EMD距离分配本地数据集')
+parser.add_argument('--iid', action='store_true', help='使用IID数据划分')
+parser.add_argument('--n_client', type=int, default=3, help='客户端数量')
+
 # 实验相关设置 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 args = parser.parse_args()
@@ -127,3 +130,4 @@ if args.dirichlet:
 elif args.emd:
     print('本地训练数据集分配方式： EMD距离 {}'.format(args.emd_distance))
 print('=' * 50)
+ 

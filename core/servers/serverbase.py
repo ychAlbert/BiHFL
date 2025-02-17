@@ -13,7 +13,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from core.utils import AverageMeter, accuracy, reset_net, GeneralDataset, split_trainset_by_dirichlet, \
-    split_trainset_by_emd
+    split_trainset_by_emd, split_trainset_by_iid
 
 __all__ = ['Server']
 
@@ -31,6 +31,8 @@ class Server(object):
             self.trainsets = split_trainset_by_dirichlet(args, xtrain, ytrain, taskcla)
         elif args.emd:
             self.trainsets = split_trainset_by_emd(args, xtrain, ytrain, taskcla)
+        elif args.iid:
+            self.trainsets = split_trainset_by_iid(args, xtrain, ytrain, taskcla)
 
         self.xtest = xtest
         self.ytest = ytest

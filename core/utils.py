@@ -238,6 +238,35 @@ def split_trainset_by_emd(args, xtrain, ytrain, taskcla):
     return splitted_trainsets
 
 
+def split_trainset_by_iid(args, xtrain, ytrain, taskcla):
+    print('\n\033[93m正在分配训练集\033[0m')
+    n_client = args.n_client
+    client_datasets = []
+
+    for task in taskcla:
+        task_id, task_n_class = task[0], task[1]
+        data_per_client = len(xtrain[task_id]) // n_client
+
+        client_task_datasets = []
+        for i in range(n_client):
+            start_idx = i * data_per_client
+            end_idx = (i + 1) * data_per_client if i != n_client - 1 else len(xtrain[task_id])
+            client_data_x = xtrain[task_id][start_idx:end_idx]
+            client_data_y = ytrain[task_id][start_idx:end_idx]
+            client_dataset = GeneralDataset(data=client_data_x, labels=client_data_y, n_class=task_n_class)
+            client_task_datasets.append(client_dataset)
+        client_datasets.append(client_task_datasets)
+
+    splitted_trainsets = []
+    for i in range(n_client):
+        splitted_trainset = {}
+        for task in taskcla:
+            splitted_trainset[f'task {task[0]}'] = client_datasets[task[0]][i]
+        splitted_trainsets.append(splitted_trainset)
+    print('\033[93m训练集分配完毕\033[0m\n')
+    return splitted_trainsets
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 # 指标评估相关类和函数
 # ----------------------------------------------------------------------------------------------------------------------

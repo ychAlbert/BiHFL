@@ -79,6 +79,9 @@ class Server(object):
                                  [200, 200, 16], [200, 200]]
             self.hlop_out_num_inc = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
                                      [200, 200, 16], [200, 200]]
+        elif self.args.experiment_name == 'svhn':  # svhn 实验
+            self.hlop_out_num = [6, 100, 200]
+            self.hlop_out_num_inc = [2, 20, 40]
 
     # ------------------------------------------------------------------------------------------------------------------
     # 设置相关客户端操作
@@ -276,6 +279,20 @@ class Server(object):
                         client.local_model.add_hlop_subspace(self.hlop_out_num_inc1)
 
         elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
+            if task_count == 0:
+                self.global_model.add_hlop_subspace(self.hlop_out_num)
+                self.global_model.to(self.device)
+                for client in self.clients:
+                    client.local_model.add_hlop_subspace(self.hlop_out_num)
+                    client.local_model.to(self.device)
+            else:
+                self.global_model.add_classifier(n_task_class)
+                self.global_model.add_hlop_subspace(self.hlop_out_num_inc)
+                for client in self.clients:
+                    client.local_model.add_classifier(n_task_class)
+                    client.local_model.add_hlop_subspace(self.hlop_out_num_inc)
+
+        elif self.args.experiment_name == 'svhn':  # svhn 实验
             if task_count == 0:
                 self.global_model.add_hlop_subspace(self.hlop_out_num)
                 self.global_model.to(self.device)

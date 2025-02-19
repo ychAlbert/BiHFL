@@ -74,6 +74,12 @@ class Server(object):
             self.hlop_out_num_inc = [2, [6, 6], [6, 6], [6, 12, 1], [12, 12], [12, 24, 2], [24, 24], [24, 48, 4],
                                      [48, 48]]
             self.hlop_out_num_inc1 = [0, [2, 2], [2, 2], [2, 4, 0], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16]]
+        elif self.args.experiment_name == 'tinyimagenet':  # tiny-imagenet 实验
+            self.hlop_out_num = [32, [120, 120], [120, 120], [120, 240, 15], [240, 240], [240, 480, 30], [480, 480],
+                                 [480, 960, 60], [960, 960]]
+            self.hlop_out_num_inc = [4, [8, 8], [8, 8], [8, 16, 2], [16, 16], [16, 32, 4], [32, 32], [32, 64, 8],
+                                     [64, 64]]
+            self.hlop_out_num_inc1 = [0, [4, 4], [4, 4], [4, 8, 0], [8, 8], [8, 16, 0], [16, 16], [16, 32, 0], [32, 32]]
         elif self.args.experiment_name.startswith('fivedataset'):  # fivedataset/fivedataset_domain 实验
             self.hlop_out_num = [6, [40, 40], [40, 40], [40, 100, 6], [100, 100], [100, 200, 8], [200, 200],
                                  [200, 200, 16], [200, 200]]

@@ -127,15 +127,24 @@ class Client(object):
                     raise NotImplementedError(self.args.opt)
             else:  # 如果不重放
                 if self.args.opt == 'SGD':
-                    self.optimizer = torch.optim.SGD(params, lr=self.lr, momentum=self.momentum)
-                    self.cur_lr = self.lr
+                    if task_id == 0:
+                        self.optimizer = torch.optim.SGD(params, lr=self.lr, momentum=self.momentum)
+                        self.cur_lr = self.lr
+                    else:
+                        self.optimizer = torch.optim.SGD(params, lr=self.continual_lr,
+                                                         momentum=self.momentum)
+                        self.cur_lr = self.continual_lr
                 elif self.args.opt == 'Adam':
-                    self.optimizer = torch.optim.Adam(params, lr=self.lr)
-                    self.cur_lr = self.lr
+                    if task_id == 0:
+                        self.optimizer = torch.optim.Adam(params, lr=self.lr)
+                        self.cur_lr = self.lr
+                    else:
+                        self.optimizer = torch.optim.Adam(params, lr=self.continual_lr)
+                        self.cur_lr = self.continual_lr
                 else:
                     raise NotImplementedError(self.args.opt)
         elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
-            if replay:
+            if replay:  # 如果重放
                 if self.args.opt == 'SGD':
                     self.optimizer = torch.optim.SGD(params, lr=self.replay_lr, momentum=self.momentum)
                     self.cur_lr = self.replay_lr
@@ -144,7 +153,35 @@ class Client(object):
                     self.cur_lr = self.replay_lr
                 else:
                     raise NotImplementedError(self.args.opt)
-            else:
+            else:  # 如果不重放
+                if self.args.opt == 'SGD':
+                    if task_id == 0:
+                        self.optimizer = torch.optim.SGD(params, lr=self.lr, momentum=self.momentum)
+                        self.cur_lr = self.lr
+                    else:
+                        self.optimizer = torch.optim.SGD(params, lr=self.continual_lr,
+                                                         momentum=self.momentum)
+                        self.cur_lr = self.continual_lr
+                elif self.args.opt == 'Adam':
+                    if task_id == 0:
+                        self.optimizer = torch.optim.Adam(params, lr=self.lr)
+                        self.cur_lr = self.lr
+                    else:
+                        self.optimizer = torch.optim.Adam(params, lr=self.continual_lr)
+                        self.cur_lr = self.continual_lr
+                else:
+                    raise NotImplementedError(self.args.opt)
+        elif self.args.experiment_name == 'tinyimagenet':  # tiny-imagenet 实验
+            if replay:  # 如果重放
+                if self.args.opt == 'SGD':
+                    self.optimizer = torch.optim.SGD(params, lr=self.replay_lr, momentum=self.momentum)
+                    self.cur_lr = self.replay_lr
+                elif self.args.opt == 'Adam':
+                    self.optimizer = torch.optim.Adam(params, lr=self.replay_lr)
+                    self.cur_lr = self.replay_lr
+                else:
+                    raise NotImplementedError(self.args.opt)
+            else:  # 如果不重放
                 if self.args.opt == 'SGD':
                     if task_id == 0:
                         self.optimizer = torch.optim.SGD(params, lr=self.lr, momentum=self.momentum)
@@ -269,6 +306,33 @@ class Client(object):
                 else:
                     raise NotImplementedError(self.args.lr_scheduler)
         elif self.args.experiment_name == 'miniimagenet':  # miniimagenet 实验
+            if replay:
+                if self.args.lr_scheduler == 'StepLR':
+                    self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
+                                                                        step_size=self.StepLR_step_size,
+                                                                        gamma=self.StepLR_gamma)
+                elif self.args.lr_scheduler == 'CosALR':
+                    self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,
+                                                                                   T_max=self.CosineAnnealingLR_replay_T_max)
+                else:
+                    raise NotImplementedError(self.args.lr_scheduler)
+            else:
+                if self.args.lr_scheduler == 'StepLR':
+                    self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
+                                                                        step_size=self.StepLR_step_size,
+                                                                        gamma=self.StepLR_gamma)
+                elif self.args.lr_scheduler == 'CosALR':
+                    lr_lambda = lambda cur_epoch: (cur_epoch + 1) / self.warmup if cur_epoch < self.warmup else 0.5 * (
+                            1 + math.cos(
+                        (cur_epoch - self.warmup) / (self.CosineAnnealingLR_T_max - self.warmup) * math.pi))
+                    self.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer,
+                                                                          lr_lambda=lr_lambda)
+                else:
+                    raise NotImplementedError(self.args.lr_scheduler)
+        elif self.args.experiment_name == 'tinyimagenet':  # tiny-imagenet 实验
+            if self.optimizer is None:
+                raise ValueError("Optimizer has not been initialized yet. Please call set_optimizer first.")
+    
             if replay:
                 if self.args.lr_scheduler == 'StepLR':
                     self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,

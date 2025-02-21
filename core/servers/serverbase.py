@@ -106,7 +106,8 @@ class Server(object):
     def select_clients(self, task_id):
         # 除上述要求外，可挑选的客户端还需要其数据可进行task_id任务
         selective_clients = [client for client in self.clients if task_id in client.local_tasks]
-        self.selected_clients = list(np.random.choice(selective_clients, self.n_client, replace=False))
+        n_selected = min(self.args.n_selected_client, len(selective_clients))
+        self.selected_clients = list(np.random.choice(selective_clients, n_selected, replace=False))
 
     # 向客户端发送全局模型
     def send_models(self):

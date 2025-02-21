@@ -39,7 +39,7 @@ parser.add_argument('--SCAFFOLD_eta', type=float, default=1.0, help='SCAFFOLD算
 # 联邦算法相关参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 # 训练及重放相关参数 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-parser.add_argument('--global_rounds', type=int, default=1, help='全局通信轮次')
+parser.add_argument('--global_rounds', type=int, default=100, help='全局通信轮次')
 parser.add_argument('--local_epochs', type=int, default=1, help='本地训练轮次')
 parser.add_argument('--batch_size', type=int, default=64, help='批处理大小')
 
@@ -81,7 +81,8 @@ parser.add_argument('--device_id', type=str, default="0", help='实验设备的i
 parser.add_argument('--dirichlet', action='store_true', help='使用迪利克雷浓度分配本地数据集')
 parser.add_argument('--emd', action='store_true', help='使用EMD距离分配本地数据集')
 parser.add_argument('--iid', action='store_true', help='使用IID数据划分')
-parser.add_argument('--n_client', type=int, default=3, help='客户端数量')
+parser.add_argument('--n_client', type=int, default=3, help='客户端总数量')
+parser.add_argument('--n_selected_client', type=int, default=3, help='每轮选择的客户端数量')
 
 parser.add_argument('--name', type=str, default='default_name', help='结果文件的名称')
 # 实验相关设置 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
